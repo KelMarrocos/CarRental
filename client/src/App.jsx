@@ -1,26 +1,57 @@
 import React, { useState } from 'react'
-import Navbar from './components/navbar'
-import { Route ,Routes, useLocation } from 'react-router-dom'
-import Home from './pages/home'
+import { Routes, Route, useLocation } from 'react-router-dom'
+
+// Layout
+import Navbar from './components/Navbar'
+import Footer from './components/Footer'
+
+// Pages
+import Home from './pages/Home'
 import CarDetails from './pages/CarDetails'
 import Cars from './pages/Cars'
 import MyBookings from './pages/MyBookings'
 
-const App = () => {
+/*
+  App Component
 
-  const [showLogin, setShowLogin] = React.useState(false)
-  const isOwnerPath = useLocation().pathname.startsWith('/owner')
+  Responsável por:
+
+  ✔ Gerenciar rotas
+  ✔ Controlar layout global
+  ✔ Evitar renderizações desnecessárias
+*/
+
+const App = () => {
+  // controla modal/login futuramente
+  const [showLogin, setShowLogin] = useState(false)
+
+  // identifica se estamos na área do proprietário
+  const location = useLocation()
+  const isOwnerPath = location.pathname.startsWith('/owner')
 
   return (
     <>
-      {!isOwnerPath && <Navbar setShowLogin={setShowLogin}/>}
+      {/* Navbar só aparece fora do painel do dono */}
+      {!isOwnerPath && <Navbar setShowLogin={setShowLogin} />}
 
+      {/* Router */}
       <Routes>
-        <Route path='/' element={<Home/>}/>
-        <Route path='/cars/:id' element={<CarDetails/>}/>
-        <Route path='/cars' element={<Cars/>}/>
-        <Route path='/my-bookings' element={<MyBookings/>}/>
+        {/* Landing */}
+        <Route path='/' element={<Home />} />
+
+        {/* Catálogo */}
+        <Route path='/cars' element={<Cars />} />
+        <Route path='/cars-details/:id' element={<CarDetails />} />
+
+        {/* Usuário */}
+        <Route path='/my-bookings' element={<MyBookings />} />
+
+        {/* Opcional: rota catch-all para página 404 */}
+        <Route path='*' element={<h1>Page not found</h1>} />
       </Routes>
+
+      {/* Footer só aparece fora do painel */}
+      {!isOwnerPath && <Footer />}
     </>
   )
 }

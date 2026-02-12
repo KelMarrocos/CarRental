@@ -1,16 +1,31 @@
 import React from 'react'
 
-const Title = ({ title, subtitle, align }) => {
-  return (
-    <div clssName={`flex flex-col justify-center items-center 
-    text-center ${align === 'left'&& 'md:items-start md:text-left' }`}>
-        <h1 className='font-semibold text-4xl md:text-[40px]'>
-            {title}
-        </h1>
-        <p className='text-sm md:text-base text-gray-500/90 mt-2 max-w-156'>
-            {subtitle}
-        </p>
+/*
+  Componente reutilizável de título de seção.
 
+  Props:
+  - title: texto principal
+  - subtitle: descrição abaixo do título
+  - align: controla alinhamento ("center" | "left")
+*/
+
+const Title = ({ title, subtitle, align = "center" }) => {
+  return (
+    <div
+      className={`
+        flex flex-col justify-center items-center text-center
+        ${align === 'left' ? 'md:items-start md:text-left' : ''}
+      `}
+    >
+      {/* Title */}
+      <h2 className='font-semibold text-3xl md:text-[40px] leading-tight'>
+        {title}
+      </h2>
+
+      {/* Subtitle */}
+      <p className='text-sm md:text-base text-gray-500/90 mt-3 max-w-2xl'>
+        {subtitle}
+      </p>
     </div>
   )
 }
