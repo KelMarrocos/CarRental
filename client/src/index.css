@@ -1,14 +1,61 @@
+/* 
+  GOOGLE FONT
+  Carregada globalmente para manter consistência tipográfica.
+  
+  Se performance virar prioridade:
+  -> considere self-host
+  -> ou usar font-display: swap
+*/
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap');
 
+
+/*
+  TAILWIND
+
+  Importa o core do framework.
+
+  IMPORTANTE:
+  Este arquivo deve ser carregado antes de qualquer
+  customização para evitar problemas de cascade.
+*/
 @import "tailwindcss";
 
+
+/*
+  GLOBAL RESET (leve)
+
+  Evita precisar declarar font-family em cada componente.
+  Mantém o design system consistente.
+*/
 *{
    font-family: "Outfit", sans-serif;
 }
 
+
+/*
+  DESIGN TOKENS / THEME
+
+  Centraliza as cores do projeto.
+  Isso permite:
+
+  ✅ troca rápida de identidade visual  
+  ✅ dark mode futuro  
+  ✅ white-label  
+  ✅ consistência  
+
+  NUNCA espalhe hex pelo projeto.
+*/
 @theme{
+
+  /* Primary brand color */
   --color-primary: #2563EB;
+
+  /* Hover / pressed states */
   --color-primary-dull: #1F58D8;
+
+  /* Backgrounds suaves */
   --color-light: #F1F5F9;
+
+  /* Borders padrão do sistema */
   --color-bordercolor: #C4C7D2;
 }

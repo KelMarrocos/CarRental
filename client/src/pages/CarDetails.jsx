@@ -1,123 +1,289 @@
-import React, { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { assets } from '../constants/assets';
-import { dummyCarData } from '../data/mockData';
-import Loader from '../components/Loader';
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { assets } from "../constants/assets";
+import { dummyCarData } from "../data/mockData";
+import RippleButton from "../components/RippleButton";
+import CarDetailsSkeleton from "../components/CarDetailsSkeleton";
+
+/*
+  CarDetails
+
+  Página de detalhes do carro.
+
+  Estrutura pensada para escalar facilmente
+  para dados vindos de API.
+
+  Separação clara de responsabilidades:
+
+  - loading state
+  - cálculo derivado (useMemo)
+  - UI isolada
+*/
 
 const CarDetails = () => {
-  const { id } = useParams();
-  const navigate = useNavigate();
-  const [car, setCar] = useState();
-  const currency = import.meta.env.VITE_CURRENCY_SYMBOL || '$';
-  const handleSubmit = (e)=> {
-    e.preventDefault();
-  }
 
+  // id vindo da URL
+  const { id } = useParams();
+
+  const navigate = useNavigate();
+
+  /*
+    Estados principais
+  */
+  const [car, setCar] = useState(null);
+  const [image, setImage] = useState(null);
+
+  const [pickup, setPickup] = useState("");
+  const [returnDate, setReturnDate] = useState("");
+
+  const currency =
+    import.meta.env.VITE_CURRENCY_SYMBOL || "$";
+
+  /*
+    Simula fetch.
+
+    Basta trocar por:
+
+    await fetch(...)
+  */
   useEffect(() => {
-    const foundCar = dummyCarData.find(car => car._id === id);
-    setCar(foundCar);
+
+    const timer = setTimeout(() => {
+
+      const found =
+        dummyCarData.find(c => c._id === id);
+
+      setCar(found);
+
+      if(found){
+        setImage(found.image);
+      }
+
+    }, 600);
+
+    return () => clearTimeout(timer);
+
   }, [id]);
 
-  if (!car) {
-    return <Loader />;
-  }
+  /*
+    Total de dias — valor DERIVADO.
+
+    Nunca guardar isso em state.
+  */
+  const totalDays = useMemo(() => {
+
+    if(!pickup || !returnDate) return 0;
+
+    const start = new Date(pickup);
+    const end = new Date(returnDate);
+
+    const diff =
+      (end - start) / (1000 * 60 * 60 * 24);
+
+    return diff > 0 ? diff : 0;
+
+  }, [pickup, returnDate]);
+
+  /*
+    Preço total também é derivado.
+  */
+  const totalPrice = useMemo(() => {
+    if(!car) return 0;
+    return totalDays * car.pricePerDay;
+  }, [totalDays, car]);
+
+  // evita render quebrado
+  if (!car) return <CarDetailsSkeleton />;
+
+  /*
+    Estrutura da galeria.
+
+    Futuramente pode vir da API:
+    car.images[]
+  */
+  const gallery = [
+    car.image,
+    car.image,
+    car.image,
+    car.image
+  ];
 
   return (
+
     <div className="px-6 md:px-16 lg:px-24 xl:px-32 mt-16">
-  {/* Botão de voltar */}
-  <div className="mb-6"> {/* <-- espaço abaixo do botão */}
-    <button
-      onClick={() => navigate('/cars')}
-      className="group flex items-center justify-center gap-2
-        px-6 py-2 border border-bordercolor
-        hover:bg-gray-50 rounded-md
-        cursor-pointer transition-all duration-300
-        hover:-translate-y-1 hover:shadow-lg"
-    >
-      <img src={assets.arrow_icon} alt="" className='rotate-180 opacity-65'/>
-      Back to all cars
-    </button>
-  </div>
 
-  <div className='grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-12'>
-    {/* Left: Car Image & Details */}
-    <div className='lg:col-span-2'>
-      <img
-        src={car.image}
-        alt={`${car.brand} ${car.model}`}
-        className="w-full h-auto md:max-h-100 object-cover rounded-xl mb-6 shadow-md" 
-      />
-      <div className='space-y-6'>
-            {/* Car Title */}
-            <div>
-              <h1 className='text-3xl font-bold'>{car.brand} {car.model}</h1>
-              <p className='text-gray-500 text-lg'>{car.category} - {car.year}</p>
-            </div>
-            <hr className='border-bordercolor my-6'/>
+      {/* NAV BACK */}
+      <RippleButton
+        onClick={() => navigate("/cars")}
+        className="
+          mb-10 flex items-center gap-2
+          px-5 py-2 border rounded-lg
+          hover:shadow-md transition
+        "
+      >
+        <img
+          src={assets.arrow_icon}
+          className="rotate-180 opacity-60"
+        />
 
-            {/* Car Details Icons */}
-            <div className='grid grid-cols-2 sm:grid-cols-4 gap-4'>
-              {[
-                {icon: assets.users_icon, text:`${car.seating_capacity} Seats`},
-                {icon: assets.fuel_icon, text:`${car.fuel_type}`},
-                {icon: assets.car_icon, text:`${car.transmission}`},
-                {icon: assets.location_icon, text:`${car.location}`},
-              ].map((item, index) => (
-                <div key={index} className='flex flex-col items-center bg-light p-4 rounded-lg'> 
-                  <img src={item.icon} alt="" className='h-5 mb-2'/>
-                  <span>{item.text}</span>
-                </div>
+        Back to cars
+      </RippleButton>
+
+      <div className="grid lg:grid-cols-3 gap-12">
+
+        {/* LEFT COLUMN */}
+        <div className="lg:col-span-2 space-y-8">
+
+          {/* TESLA STYLE GALLERY */}
+          <div className="space-y-4">
+
+            {/* imagem principal */}
+            <img
+              src={image}
+              className="
+                w-full h-[480px]
+                object-cover rounded-2xl
+                shadow-sm transition duration-500
+              "
+            />
+
+            {/* thumbnails */}
+            <div className="grid grid-cols-4 gap-4">
+
+              {gallery.map((img, i)=>(
+                <img
+                  key={i}
+                  src={img}
+                  onClick={()=>setImage(img)}
+                  className={`
+                    h-24 w-full object-cover
+                    rounded-xl cursor-pointer
+                    transition hover:scale-105
+                    ${image===img && "ring-2 ring-primary"}
+                  `}
+                />
               ))}
-            </div>
 
-            {/* Description */}
-            <div>
-              <h1 className='text-lg font-medium mb-3'>Description</h1>
-              <p className='text-gray-500'>{car.description}</p>
-            </div>
-
-            {/* Features */}
-            <div>
-              <h1 className='text-lg font-medium mb-3'>Features</h1>
-              <ul className='grid grid-cols-1 sm:grid-cols-2 gap-2'>
-                {["360 camera", "Bluetooth", "GPS", "Heated seats", "Rear View Mirror"].map((item) => (
-                  <li key={item} className='flex items-center text-gray-500'>
-                    <img src={assets.check_icon} className='h-4 mr-2' alt=''/>
-                    {item}
-                  </li>
-                ))}
-              </ul>
             </div>
           </div>
+
+          {/* TITLE */}
+          <div>
+            <h1 className="text-4xl font-bold">
+              {car.brand} {car.model}
+            </h1>
+
+            <p className="text-gray-500 text-lg">
+              {car.category} · {car.year}
+            </p>
+          </div>
+
+          {/* SPECS */}
+          <div className="grid sm:grid-cols-4 gap-4">
+
+            {[
+              {icon: assets.users_icon, text:`${car.seating_capacity} seats`},
+              {icon: assets.fuel_icon, text:car.fuel_type},
+              {icon: assets.car_icon, text:car.transmission},
+              {icon: assets.location_icon, text:car.location},
+            ].map((item,i)=>(
+              <div
+                key={i}
+                className="
+                  bg-white border rounded-xl p-4
+                  hover:shadow-md transition
+                "
+              >
+                <img src={item.icon} className="h-5 mb-2"/>
+                <p className="text-sm text-gray-600">
+                  {item.text}
+                </p>
+              </div>
+            ))}
+
+          </div>
+
+          {/* DESCRIPTION */}
+          <div>
+            <h2 className="text-xl font-semibold mb-2">
+              Description
+            </h2>
+
+            <p className="text-gray-600 leading-relaxed">
+              {car.description}
+            </p>
+          </div>
+
         </div>
 
-        {/* Right: Booking Form Placeholder */}
-        <form onSubmit={handleSubmit} className='shadow-lg h-max sticky top-18 rounded-xl p-6 space-y-6 text-gray-500'>
-          <p className='flex items-center justify-between text-2xl text-gray-800 font-semibold'>
-            {currency}{car.pricePerDay}<span className='text-base text-gray-400 
-            font-normal'>per day</span></p>
+        {/* FLOATING PRICE CARD */}
+        <div
+          className="
+            sticky top-24 h-max
+            bg-white border rounded-2xl
+            p-7 shadow-xl space-y-6
+          "
+        >
 
-            <hr className='border-bordercolor my-6'/>
+          {/* preço */}
+          <div className="flex justify-between items-end">
+            <p className="text-3xl font-bold">
+              {currency}{car.pricePerDay}
+            </p>
 
-            <div className='flex flex-col gap-2'>
-              <label htmlFor="picture-date">Picture Date</label>
-              <input type="date" className='border border-bordercolor px-3 py-2 
-              rounded-lg' required id='pickup-date' min={new Date().toISOString().split('T')[0]}/>
+            <span className="text-gray-400">
+              /day
+            </span>
+          </div>
+
+          {/* datas */}
+          <div className="space-y-3">
+
+            <input
+              type="date"
+              value={pickup}
+              onChange={e=>setPickup(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2"
+            />
+
+            <input
+              type="date"
+              value={returnDate}
+              onChange={e=>setReturnDate(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2"
+            />
+
+          </div>
+
+          {/* cálculo */}
+          {totalDays > 0 && (
+            <div className="bg-gray-50 p-4 rounded-xl">
+              <p>{totalDays} days</p>
+
+              <p className="font-semibold text-lg">
+                Total: {currency}{totalPrice}
+              </p>
             </div>
+          )}
 
-            <div className='flex flex-col gap-2'>
-              <label htmlFor="return-date">Return Date</label>
-              <input type="date" className='border border-bordercolor px-3 py-2 
-              rounded-lg' required id='return-date'/>
-            </div>
+          <RippleButton
+            className="
+              w-full py-3 rounded-xl
+              bg-primary text-white font-medium
+              hover:scale-[1.02]
+              active:scale-[.98]
+              transition
+            "
+          >
+            Reserve Now
+          </RippleButton>
 
-            <button className='w-full bg-primary houver:bg-primary-dull
-            transition-all py-3 font-medium text-white rounded-xl cursor-pointer'
-            >Book Now</button>
+          <p className="text-xs text-center text-gray-400">
+            No credit card required
+          </p>
 
-            <p className='text-center text-sm'>No credit card required to reserve</p>
+        </div>
 
-        </form>
       </div>
     </div>
   );
