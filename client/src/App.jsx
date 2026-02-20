@@ -11,6 +11,7 @@ import Home from './pages/Home'
 import Cars from './pages/Cars'
 import CarDetails from './pages/CarDetails'
 import MyBookings from './pages/MyBookings'
+import AuthModal from './components/auth/AuthModal'
 
 // Owner pages
 import Dashboard from './pages/owner/Dashboard'
@@ -29,12 +30,15 @@ const App = () => {
     <>
       {/* Navbar só aparece fora do painel do dono */}
       {!isOwnerPath && <Navbar setShowLogin={setShowLogin} />}
+      
+      {/* MODAL */}
+      <AuthModal open={showLogin} onClose={() => setShowLogin(false)} />
 
       <Routes>
         {/* Public */}
         <Route path='/' element={<Home />} />
         <Route path='/cars' element={<Cars />} />
-        <Route path='/cars/:id' element={<CarDetails />} />
+        <Route path='/cars-details/:id' element={<CarDetails />} />
         <Route path='/my-bookings' element={<MyBookings />} />
 
         {/* Owner (nested routes) */}
