@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import "./modern-login.css";
+import "./Modern-Login.css";
 import { assets } from "../../constants";
 import { useAppContext } from "../../context/AppContext";
 import { toast } from "react-hot-toast";
