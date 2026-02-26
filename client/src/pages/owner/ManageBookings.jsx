@@ -1,21 +1,8 @@
-// pages/owner/ManageBookings.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import Title from "../../components/owner/Title";
 import { assets } from "../../constants/assets";
-import { dummyMyBookingsData } from "../../data/mockData";
-
-/*
-  ManageBookings (Owner)
-  ----------------------
-  Objetivo:
-  ✔ listar reservas do dono
-  ✔ permitir aprovar / cancelar (mock agora, API depois)
-  ✔ UX: status com cores + hover, responsivo e fácil de manter
-
-  FUTURO (API):
-  - fetchOwnerBookings(): GET /owner/bookings
-  - updateBookingStatus(id, status): PATCH /bookings/:id
-*/
+import { useAppContext } from "../../context/AppContext";
+import { toast } from "react-hot-toast";
 
 const statusStyles = {
   confirmed: "bg-green-500/10 text-green-700 border-green-500/20",
@@ -32,50 +19,65 @@ const statusLabel = (s) => {
   return v;
 };
 
-const formatDate = (d) => {
-  if (!d) return "-";
-  // seu mock às vezes é "2025-06-13" e às vezes tem T
-  return String(d).split("T")[0];
-};
+const formatDate = (d) => (d ? String(d).split("T")[0] : "-");
 
 const ManageBookings = () => {
-  const currency = import.meta.env.VITE_CURRENCY || "$";
+  const { axios, currency } = useAppContext();
 
-  // dados
   const [bookings, setBookings] = useState([]);
-
-  // loading UI simples
   const [loading, setLoading] = useState(true);
 
-  // busca bookings (mock agora)
   const fetchOwnerBookings = async () => {
-    setLoading(true);
+    try {
+      setLoading(true);
+      const { data } = await axios.get("/api/owner/bookings");
 
-    // simulando uma “latência” pequena pra skeleton fazer sentido
-    setTimeout(() => {
-      setBookings(dummyMyBookingsData);
+      if (!data?.success) {
+        toast.error(data?.message || "Failed to fetch bookings");
+        setBookings([]);
+        return;
+      }
+
+      setBookings(data.bookings || []);
+    } catch (error) {
+      toast.error(
+        error?.response?.data?.message || error?.message || "Failed to fetch bookings"
+      );
+      setBookings([]);
+    } finally {
       setLoading(false);
-    }, 250);
+    }
   };
 
   useEffect(() => {
     fetchOwnerBookings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // total (para header)
   const total = useMemo(() => bookings.length, [bookings]);
 
-  /*
-    Atualiza status (mock)
-    ---------------------
-    Futuro: chama API e depois atualiza state com resposta
-  */
-  const updateStatus = (bookingId, nextStatus) => {
-    setBookings((prev) =>
-      prev.map((b) =>
-        b._id === bookingId ? { ...b, status: nextStatus } : b
-      )
+  // ✅ atualiza status via API (otimista + rollback)
+  const updateStatus = async (bookingId, nextStatus) => {
+    const prev = bookings;
+
+    setBookings((cur) =>
+      cur.map((b) => (b._id === bookingId ? { ...b, status: nextStatus } : b))
     );
+
+    try {
+      const { data } = await axios.patch(`/api/owner/booking/${bookingId}`, {
+        status: nextStatus,
+      });
+
+      if (!data?.success) throw new Error(data?.message || "Failed to update status");
+
+      toast.success(data?.message || "Status updated");
+    } catch (error) {
+      setBookings(prev); // rollback
+      toast.error(
+        error?.response?.data?.message || error?.message || "Failed to update status"
+      );
+    }
   };
 
   return (
@@ -85,11 +87,9 @@ const ManageBookings = () => {
         subTitle="Track all customer bookings, approve or cancel requests, and manage booking statuses."
       />
 
-      {/* Header: count + refresh */}
       <div className="mt-6 flex items-center justify-between gap-3">
         <p className="text-sm text-gray-500">
-          Showing <span className="font-medium text-gray-800">{total}</span>{" "}
-          bookings
+          Showing <span className="font-medium text-gray-800">{total}</span> bookings
         </p>
 
         <button
@@ -102,14 +102,10 @@ const ManageBookings = () => {
         </button>
       </div>
 
-      {/* Skeleton (loading) */}
       {loading && (
         <div className="mt-6 space-y-3">
           {[...Array(4)].map((_, i) => (
-            <div
-              key={i}
-              className="bg-white border border-bordercolor rounded-xl p-4"
-            >
+            <div key={i} className="bg-white border border-bordercolor rounded-xl p-4">
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 rounded-lg bg-gray-100 animate-pulse" />
                 <div className="flex-1 space-y-2">
@@ -124,7 +120,6 @@ const ManageBookings = () => {
         </div>
       )}
 
-      {/* Conteúdo */}
       {!loading && (
         <>
           {/* MOBILE: cards */}
@@ -138,7 +133,6 @@ const ManageBookings = () => {
                   className="bg-white border border-bordercolor rounded-xl p-4
                   hover:shadow-md transition hover:-translate-y-0.5"
                 >
-                  {/* Top: car */}
                   <div className="flex items-center gap-3">
                     <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-100 border border-bordercolor">
                       <img
@@ -160,14 +154,9 @@ const ManageBookings = () => {
                     </div>
                   </div>
 
-                  {/* Middle: info */}
                   <div className="mt-4 space-y-2 text-sm text-gray-600">
                     <div className="flex items-center gap-2">
-                      <img
-                        src={assets.calendar_icon_colored}
-                        alt=""
-                        className="w-4 h-4"
-                      />
+                      <img src={assets.calendar_icon_colored} alt="" className="w-4 h-4" />
                       <p>
                         {formatDate(b.pickupDate)} → {formatDate(b.returnDate)}
                       </p>
@@ -177,14 +166,13 @@ const ManageBookings = () => {
                       <p className="text-sm text-gray-500">
                         Total:{" "}
                         <span className="font-semibold text-primary">
-                          {currency}{b.price}
+                          {currency || "$"}{b.price}
                         </span>
                       </p>
 
                       <span
                         className={`px-3 py-1 rounded-full border text-xs font-medium
-                        ${statusStyles[s] || "bg-gray-100 text-gray-600 border-gray-200"}
-                        transition hover:scale-[1.03]`}
+                        ${statusStyles[s] || "bg-gray-100 text-gray-600 border-gray-200"}`}
                       >
                         {s}
                       </span>
@@ -195,14 +183,12 @@ const ManageBookings = () => {
                     </p>
                   </div>
 
-                  {/* Actions */}
                   <div className="mt-4 flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() => updateStatus(b._id, "confirmed")}
                       className="flex-1 px-4 py-2 rounded-xl text-sm font-medium
-                      bg-primary text-white hover:bg-primary-dull
-                      transition hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98]"
+                      bg-primary text-white hover:bg-primary-dull transition"
                     >
                       Confirm
                     </button>
@@ -211,8 +197,7 @@ const ManageBookings = () => {
                       type="button"
                       onClick={() => updateStatus(b._id, "cancelled")}
                       className="flex-1 px-4 py-2 rounded-xl text-sm font-medium
-                      border border-bordercolor hover:bg-gray-50
-                      transition hover:-translate-y-0.5 hover:shadow-sm active:scale-[0.98]"
+                      border border-bordercolor hover:bg-gray-50 transition"
                     >
                       Cancel
                     </button>
@@ -245,7 +230,6 @@ const ManageBookings = () => {
                         key={b._id}
                         className="border-t border-bordercolor hover:bg-gray-50/60 transition"
                       >
-                        {/* Car */}
                         <td className="p-4">
                           <div className="flex items-center gap-3">
                             <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-100 border border-bordercolor">
@@ -269,14 +253,9 @@ const ManageBookings = () => {
                           </div>
                         </td>
 
-                        {/* Period */}
                         <td className="p-4">
                           <div className="flex items-center gap-2">
-                            <img
-                              src={assets.calendar_icon_colored}
-                              alt=""
-                              className="w-4 h-4"
-                            />
+                            <img src={assets.calendar_icon_colored} alt="" className="w-4 h-4" />
                             <p>
                               {formatDate(b.pickupDate)} → {formatDate(b.returnDate)}
                             </p>
@@ -286,33 +265,28 @@ const ManageBookings = () => {
                           </p>
                         </td>
 
-                        {/* Price */}
                         <td className="p-4">
                           <p className="font-semibold text-primary">
-                            {currency}{b.price}
+                            {currency || "$"}{b.price}
                           </p>
                         </td>
 
-                        {/* Status */}
                         <td className="p-4">
                           <span
                             className={`inline-flex items-center px-3 py-1 rounded-full border text-xs font-medium
-                            ${statusStyles[s] || "bg-gray-100 text-gray-600 border-gray-200"}
-                            transition hover:scale-[1.03]`}
+                            ${statusStyles[s] || "bg-gray-100 text-gray-600 border-gray-200"}`}
                           >
                             {s}
                           </span>
                         </td>
 
-                        {/* Actions */}
                         <td className="p-4">
                           <div className="flex items-center justify-end gap-2">
                             <button
                               type="button"
                               onClick={() => updateStatus(b._id, "confirmed")}
                               className="px-4 py-2 rounded-xl text-sm font-medium
-                              bg-primary text-white hover:bg-primary-dull
-                              transition hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98]"
+                              bg-primary text-white hover:bg-primary-dull transition"
                             >
                               Confirm
                             </button>
@@ -321,8 +295,7 @@ const ManageBookings = () => {
                               type="button"
                               onClick={() => updateStatus(b._id, "cancelled")}
                               className="px-4 py-2 rounded-xl text-sm font-medium
-                              border border-bordercolor hover:bg-gray-50
-                              transition hover:-translate-y-0.5 hover:shadow-sm active:scale-[0.98]"
+                              border border-bordercolor hover:bg-gray-50 transition"
                             >
                               Cancel
                             </button>

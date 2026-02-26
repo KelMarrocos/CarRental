@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { Routes, Route, useLocation } from 'react-router-dom'
+import { Toaster } from 'react-hot-toast'
 
 // Layout
 import Navbar from './components/Navbar'
@@ -12,6 +13,7 @@ import Cars from './pages/Cars'
 import CarDetails from './pages/CarDetails'
 import MyBookings from './pages/MyBookings'
 import AuthModal from './components/auth/AuthModal'
+import { useAppContext } from './context/AppContext'
 
 // Owner pages
 import Dashboard from './pages/owner/Dashboard'
@@ -21,15 +23,16 @@ import ManageCars from './pages/owner/ManageCars'
 import ManageBookings from './pages/owner/ManageBookings'
 
 const App = () => {
-  const [showLogin, setShowLogin] = useState(false)
+  const { showLogin, setShowLogin } = useAppContext();
 
-  const location = useLocation()
-  const isOwnerPath = location.pathname.startsWith('/owner')
+  const location = useLocation();
+  const isOwnerPath = location.pathname.startsWith('/owner');
 
   return (
     <>
+      <Toaster/>
       {/* Navbar só aparece fora do painel do dono */}
-      {!isOwnerPath && <Navbar setShowLogin={setShowLogin} />}
+      {!isOwnerPath && <Navbar/>}
       
       {/* MODAL */}
       <AuthModal open={showLogin} onClose={() => setShowLogin(false)} />

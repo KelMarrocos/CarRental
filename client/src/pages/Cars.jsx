@@ -1,73 +1,124 @@
-import React from 'react';
-import Title from '../components/Title';
-import { assets } from '../constants/assets';
-import { dummyCarData } from '../data/mockData';
-import CarCard from '../components/CarCard';
-
-/*
-  Cars Page
-
-  Responsável por listar todos os veículos disponíveis.
-
-  Estrutura pensada para fácil migração futura de:
-  -> dummy data → API
-  -> filtro local → server-side search
-*/
+import React, { useEffect, useMemo, useState } from "react";
+import Title from "../components/Title";
+import { assets } from "../constants/assets";
+import CarCard from "../components/CarCard";
+import { useAppContext } from "../context/AppContext";
+import { toast } from "react-hot-toast";
+import { useLocation, useNavigate } from "react-router-dom";
 
 const Cars = () => {
+  const { axios } = useAppContext();
 
-  /*
-    Estado da busca.
+  const location = useLocation();
+  const navigate = useNavigate();
 
-    Mantido local pois ainda não há integração com API.
-    
-    Futuro upgrade recomendado:
-    -> debounce
-    -> query params
-    -> cache (React Query / TanStack)
-  */
-  const [input, setInput] = React.useState('');
+  // ✅ pega q da URL (ex: /cars?q=tesla)
+  const qFromUrl = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get("q") || "";
+  }, [location.search]);
+
+  // ✅ input começa com q da URL
+  const [input, setInput] = useState(qFromUrl);
+
+  const [cars, setCars] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // ✅ mantém input sincronizado se a URL mudar (ex: search no Navbar)
+  useEffect(() => {
+    setInput(qFromUrl);
+  }, [qFromUrl]);
+
+  // ✅ busca carros da API
+  useEffect(() => {
+    const fetchCars = async () => {
+      try {
+        setLoading(true);
+
+        const { data } = await axios.get("/api/user/cars");
+
+        if (!data?.success) {
+          toast.error(data?.message || "Failed to load cars");
+          setCars([]);
+          return;
+        }
+
+        // opcional: só disponíveis (compat com typo antigo)
+        const list = (data.cars || []).filter((c) => {
+          if (typeof c.isAvailable === "boolean") return c.isAvailable;
+          if (typeof c.isAvaliable === "boolean") return c.isAvaliable;
+          return true;
+        });
+
+        setCars(list);
+      } catch (error) {
+        toast.error(
+          error?.response?.data?.message || error?.message || "Failed to load cars"
+        );
+        setCars([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCars();
+  }, [axios]);
+
+  // ✅ lista filtrada (derivada)
+  const filteredCars = useMemo(() => {
+    const q = input.trim().toLowerCase();
+    if (!q) return cars;
+
+    return cars.filter((car) => {
+      const haystack = [
+        car.brand,
+        car.model,
+        car.category,
+        car.transmission,
+        car.fuel_type,
+        car.location,
+        car.description,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(q);
+    });
+  }, [input, cars]);
+
+  // ✅ atualiza URL quando digitar (sem ficar spammando history)
+  // - atualiza só após pequena pausa (debounce simples)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const q = input.trim();
+      const params = new URLSearchParams(location.search);
+
+      if (q) params.set("q", q);
+      else params.delete("q");
+
+      // replace: não cria mil entradas no histórico
+      navigate(`/cars?${params.toString()}`, { replace: true });
+    }, 250);
+
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [input]);
 
   return (
     <div className="bg-light min-h-screen">
-
-      {/* 
-        HERO SECTION
-        Contém título + busca.
-        Centralizado para criar foco visual imediato.
-      */}
+      {/* HERO */}
       <div className="flex flex-col items-center py-20 max-md:px-4">
-
-        {/* 
-          Componente reutilizável.
-          Mantém consistência tipográfica no app inteiro.
-        */}
         <Title
           title="Available Cars"
           subtitle="Browse our select of premium vehicles available for your next adventure."
         />
 
-        {/* 
-          SEARCH BAR
-
-          Estrutura preparada para:
-          -> filtros
-          -> busca inteligente
-          -> autocomplete
-        */}
+        {/* SEARCH BAR */}
         <div className="flex items-center bg-white px-4 mt-6 max-w-140 w-full h-12 rounded-full shadow">
-
-          {/* Ícone puramente decorativo */}
           <img src={assets.search_icon} alt="" className="w-4.5 h-4.5 mr-2" />
 
           <input
-            /*
-              Atualiza o estado a cada digitação.
-              
-              Quando migrar para API:
-              -> aplicar debounce (~300ms)
-              -> evitar requisições excessivas
-            */
             onChange={(e) => setInput(e.target.value)}
             value={input}
             type="text"
@@ -75,54 +126,52 @@ const Cars = () => {
             className="w-full h-full outline-none text-gray-500 bg-transparent"
           />
 
-          {/* Futuro botão de filtros */}
-          <img src={assets.filter_icon} alt="" className="w-4.5 h-4.5 ml-2" />
+          {/* limpar */}
+          {input ? (
+            <button
+              type="button"
+              onClick={() => setInput("")}
+              className="text-gray-400 hover:text-gray-700 transition px-2"
+              title="Clear"
+            >
+              ✕
+            </button>
+          ) : (
+            <img src={assets.filter_icon} alt="" className="w-4.5 h-4.5 ml-2" />
+          )}
         </div>
       </div>
 
-      {/* 
-        LISTAGEM DE CARROS
-
-        Container controla largura máxima
-        para manter leitura confortável em telas grandes.
-      */}
+      {/* LISTAGEM */}
       <div className="px-6 md:px-16 lg:px-24 xl:px-32 mt-10">
-
-        {/* 
-          Feedback imediato ao usuário.
-
-          Futuramente trocar para:
-          -> resultado filtrado
-          -> paginação
-          -> contagem vinda da API
-        */}
         <p className="text-gray-500 xl:px-26 max-w-7xl mx-auto">
-          Showing {dummyCarData.length} Cars
+          Showing {loading ? "..." : filteredCars.length} Cars
         </p>
 
-        {/* 
-          GRID RESPONSIVO
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 max-w-7xl mx-auto mt-6">
+          {/* Loading */}
+          {loading && (
+            <>
+              <div className="h-72 bg-white border border-bordercolor rounded-xl animate-pulse" />
+              <div className="h-72 bg-white border border-bordercolor rounded-xl animate-pulse" />
+              <div className="h-72 bg-white border border-bordercolor rounded-xl animate-pulse hidden lg:block" />
+            </>
+          )}
 
-          1 coluna → mobile  
-          2 → tablet  
-          3 → desktop  
+          {/* Resultados */}
+          {!loading &&
+            filteredCars.map((car) => <CarCard key={car._id} car={car} />)}
 
-          Evita media queries manuais.
-        */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 max-w-7xl mx-auto">
-
-          {/*
-            Cada carro é isolado em um Card.
-
-            Benefícios:
-            -> reutilização
-            -> menor complexidade
-            -> facilita memoização
-          */}
-          {dummyCarData.map((car) => (
-            <CarCard key={car._id} car={car} />
-          ))}
-
+          {/* Empty */}
+          {!loading && filteredCars.length === 0 && (
+            <div className="col-span-full text-center text-gray-500 py-10">
+              No cars found{input ? (
+                <>
+                  {" "}for <span className="font-medium">"{input}"</span>
+                </>
+              ) : null}
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -1,117 +1,108 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import { dummyCarData } from '../../data/mockData'
-import Title from '../../components/owner/Title'
-import { assets } from '../../constants/assets'
-import { useNavigate } from 'react-router-dom'
-
-/*
-  ManageCars (Owner)
-  -----------------
-  Objetivo:
-  → listar carros do proprietário
-  → facilitar ações (editar / remover / toggle disponibilidade)
-  → UI com cara de painel SaaS (Airbnb/Stripe)
-
-  Melhorias incluídas:
-  ✔ tabela responsiva e legível
-  ✔ thumbnail nítida (sem “perder qualidade”)
-  ✔ nome sempre visível no mobile (infos extras só no desktop)
-  ✔ badge de status com cores + hover suave
-  ✔ coluna de preço com moeda automática (VITE_CURRENCY)
-  ✔ ações com ícones + hover
-  ✔ empty state elegante
-  ✔ skeleton loading simples (para futura integração com API)
-
-  Futuras melhorias fáceis:
-  → buscar carros via API + paginação
-  → modal de confirmação (delete)
-  → edição inline
-  → ordenação e filtros
-*/
+import React, { useEffect, useState } from "react";
+import Title from "../../components/owner/Title";
+import { assets } from "../../constants/assets";
+import { useNavigate } from "react-router-dom";
+import { useAppContext } from "../../context/AppContext";
+import { toast } from "react-hot-toast";
 
 const ManageCars = () => {
-  /* =========================
-     State
-  ========================== */
-
-  const [cars, setCars] = useState([])
-  const [loading, setLoading] = useState(true)
   const navigate = useNavigate();
-  const toggleAvailability = (id) => {
-  setCars(prev =>
-    prev.map(car =>
-      car._id === id
-        ? { ...car, isAvailable: !car.isAvailable }
-        : car
-    )
-  )
-}
+  const { axios, currency } = useAppContext();
 
-  // moeda automática (conforme seu .env: VITE_CURRENCY=$)
-  const currency = import.meta.env.VITE_CURRENCY || '$'
-
-  /* =========================
-     Fetch (mock)
-     - aqui futuramente vira API
-  ========================== */
-  const fetchOwnerCars = async () => {
-    setLoading(true)
-
-    // simula fetch
-    setTimeout(() => {
-      setCars(dummyCarData)
-      setLoading(false)
-    }, 400)
-  }
-
-  useEffect(() => {
-    fetchOwnerCars()
-  }, [])
+  const [cars, setCars] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   /* =========================
      Helpers
   ========================== */
+  const formatPrice = (value) => `${currency || "$"} ${value}`;
+  const getStatus = (car) => (car.isAvailable ? "Available" : "Unavailable");
 
-  // Formata preço (ex.: $ 300)
-  const formatPrice = (value) => `${currency} ${value}`
-
-  // Status calculado a partir de isAvailable (mock)
-  const getStatus = (car) => (car.isAvailable ? 'Available' : 'Unavailable')
-
-  // Classes do badge (cores + hover)
   const getStatusClasses = (status) => {
-    if (status === 'Available') {
-      return 'bg-green-500/10 text-green-700 border-green-500/20 hover:bg-green-500/15'
+    if (status === "Available") {
+      return "bg-green-500/10 text-green-700 border-green-500/20 hover:bg-green-500/15";
     }
-    return 'bg-gray-500/10 text-gray-700 border-gray-500/20 hover:bg-gray-500/15'
-  }
+    return "bg-gray-500/10 text-gray-700 border-gray-500/20 hover:bg-gray-500/15";
+  };
 
   /* =========================
-     Actions (mock)
-     - futuramente vira API
+     API
   ========================== */
+  const fetchOwnerCars = async () => {
+    try {
+      setLoading(true);
+      const { data } = await axios.get("/api/owner/cars");
 
-  const handleToggleAvailability = (carId) => {
+      if (!data?.success) {
+        toast.error(data?.message || "Failed to fetch owner cars");
+        setCars([]);
+        return;
+      }
+
+      setCars(data.cars || []);
+    } catch (error) {
+      toast.error(
+        error?.response?.data?.message || error?.message || "Failed to fetch cars"
+      );
+      setCars([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggleAvailability = async (carId) => {
+  // otimista (UI muda na hora)
+  setCars((prev) =>
+    prev.map((c) => (c._id === carId ? { ...c, isAvailable: !c.isAvailable } : c))
+  );
+
+  try {
+    const { data } = await axios.patch(`/api/owner/car/${carId}/toggle`);
+
+    if (!data?.success) throw new Error(data?.message || "Toggle failed");
+
+    toast.success(data?.message || "Availability updated");
+  } catch (error) {
+    // rollback
     setCars((prev) =>
-      prev.map((c) =>
-        c._id === carId ? { ...c, isAvailable: !c.isAvailable } : c
-      )
-    )
+      prev.map((c) => (c._id === carId ? { ...c, isAvailable: !c.isAvailable } : c))
+    );
+    toast.error(error?.response?.data?.message || error?.message || "Failed to toggle");
   }
+};
 
-  const handleEdit = (carId) => {
-    // Futuro: navegar para /owner/edit-car/:id
-    console.log('Edit car:', carId)
-  }
+  const handleDelete = async (carId) => {
+    // (simples) confirma com o browser — depois você pode trocar por modal bonito
+    const ok = window.confirm("Remove this car?");
+    if (!ok) return;
 
-  const handleDelete = (carId) => {
-    // Futuro: modal de confirmação + API
-    setCars((prev) => prev.filter((c) => c._id !== carId))
-  }
+    // otimista
+    const before = cars;
+    setCars((prev) => prev.filter((c) => c._id !== carId));
+
+    try {
+      const { data } = await axios.delete(`/api/owner/car/${carId}`);
+
+      if (!data?.success) {
+        throw new Error(data?.message || "Delete failed");
+      }
+
+      toast.success(data?.message || "Car removed");
+    } catch (error) {
+      setCars(before); // reverte
+      toast.error(
+        error?.response?.data?.message || error?.message || "Failed to delete"
+      );
+    }
+  };
+
+  useEffect(() => {
+    fetchOwnerCars();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /* =========================
-     Skeleton UI
-     - deixa o dashboard "vivo"
+     UI pieces
   ========================== */
   const SkeletonRow = () => (
     <tr className="border-t border-bordercolor">
@@ -135,21 +126,22 @@ const ManageCars = () => {
       </td>
       <td className="p-3">
         <div className="flex items-center gap-2 justify-end">
+          <div className="h-8 w-16 bg-gray-200 rounded-lg animate-pulse" />
           <div className="h-8 w-8 bg-gray-200 rounded-lg animate-pulse" />
           <div className="h-8 w-8 bg-gray-200 rounded-lg animate-pulse" />
-          <div className="h-8 w-8 bg-gray-200 rounded-lg animate-pulse hidden sm:block" />
         </div>
       </td>
     </tr>
-  )
+  );
 
-  /* =========================
-     Empty state
-  ========================== */
   const EmptyState = () => (
     <div className="py-14 px-6 text-center">
       <div className="mx-auto w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
-        <img src={assets.carIconColored || assets.car_icon} alt="" className="w-7 h-7" />
+        <img
+          src={assets.carIconColored || assets.car_icon}
+          alt=""
+          className="w-7 h-7"
+        />
       </div>
 
       <h2 className="mt-4 text-lg font-semibold text-gray-800">
@@ -159,17 +151,16 @@ const ManageCars = () => {
         Add your first car to start receiving bookings.
       </p>
 
-      {/* Futuro: Link para /owner/add-car */}
       <button
         type="button"
-        onClick={() => console.log('Go to add-car')}
+        onClick={() => navigate("/owner/add-car")}
         className="mt-6 px-5 py-2 rounded-xl bg-primary text-white
         hover:bg-primary-dull transition hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98]"
       >
         Add new car
       </button>
     </div>
-  )
+  );
 
   return (
     <div className="px-4 pt-10 md:px-10 w-full">
@@ -178,15 +169,13 @@ const ManageCars = () => {
         subTitle="View all listed cars, update their details, or remove them from the booking platform."
       />
 
-      {/* Container da tabela */}
       <div className="max-w-5xl w-full rounded-xl overflow-hidden border border-bordercolor mt-6 bg-white shadow-sm">
-        {/* Header (top bar) */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-bordercolor">
           <p className="text-sm text-gray-500">
-            Showing <span className="text-gray-800 font-medium">{cars.length}</span> cars
+            Showing{" "}
+            <span className="text-gray-800 font-medium">{cars.length}</span> cars
           </p>
 
-          {/* Futuro: search + filtros */}
           <button
             type="button"
             onClick={fetchOwnerCars}
@@ -197,7 +186,6 @@ const ManageCars = () => {
           </button>
         </div>
 
-        {/* Tabela */}
         <div className="w-full overflow-x-auto">
           <table className="w-full border-collapse text-left text-sm text-gray-600">
             <thead className="text-gray-500 bg-gray-50">
@@ -211,7 +199,6 @@ const ManageCars = () => {
             </thead>
 
             <tbody>
-              {/* Loading skeleton */}
               {loading && (
                 <>
                   <SkeletonRow />
@@ -220,7 +207,6 @@ const ManageCars = () => {
                 </>
               )}
 
-              {/* Empty state */}
               {!loading && cars.length === 0 && (
                 <tr>
                   <td colSpan={5}>
@@ -229,20 +215,17 @@ const ManageCars = () => {
                 </tr>
               )}
 
-              {/* Lista real */}
               {!loading &&
                 cars.map((car) => {
-                  const status = getStatus(car)
+                  const status = getStatus(car);
 
                   return (
                     <tr
                       key={car._id}
                       className="border-t border-bordercolor hover:bg-gray-50/60 transition"
                     >
-                      {/* Car column: imagem + infos */}
                       <td className="p-3">
                         <div className="flex items-center gap-3">
-                          {/* Thumbnail (não perde qualidade) */}
                           <div className="w-14 h-14 rounded-md overflow-hidden bg-gray-100 flex items-center justify-center shrink-0">
                             <img
                               src={car.image}
@@ -253,14 +236,11 @@ const ManageCars = () => {
                             />
                           </div>
 
-                          {/* Texts */}
                           <div className="min-w-0">
-                            {/* Nome sempre visível (mobile também) */}
                             <p className="font-medium text-gray-800 truncate">
                               {car.brand} {car.model}
                             </p>
 
-                            {/* Infos extras só no desktop */}
                             <p className="text-xs text-gray-500 truncate hidden md:block">
                               {car.seating_capacity} Seats • {car.transmission}
                             </p>
@@ -268,12 +248,8 @@ const ManageCars = () => {
                         </div>
                       </td>
 
-                      {/* Category */}
-                      <td className="p-3 max-md:hidden">
-                        {car.category}
-                      </td>
+                      <td className="p-3 max-md:hidden">{car.category}</td>
 
-                      {/* Price */}
                       <td className="p-3">
                         <div className="flex flex-col">
                           <span className="font-medium text-gray-800">
@@ -283,7 +259,6 @@ const ManageCars = () => {
                         </div>
                       </td>
 
-                      {/* Status */}
                       <td className="p-3 max-md:hidden">
                         <button
                           type="button"
@@ -298,31 +273,29 @@ const ManageCars = () => {
                         >
                           <span
                             className={`h-2 w-2 rounded-full ${
-                              status === 'Available' ? 'bg-green-600' : 'bg-gray-500'
+                              status === "Available" ? "bg-green-600" : "bg-gray-500"
                             }`}
                           />
                           {status}
                         </button>
                       </td>
 
-                      {/* Actions */}
                       <td className="p-3">
                         <div className="flex items-center gap-2 justify-end">
-
-                          {/* AVAILABILITY TOGGLE */}
                           <button
-                            onClick={() => toggleAvailability(car._id)}
+                            onClick={() => handleToggleAvailability(car._id)}
                             className={`
                               px-3 py-1.5 rounded-md text-sm font-medium transition
-                              ${car.isAvailable
-                                ? 'bg-green-50 text-green-600 hover:bg-green-100'
-                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}
+                              ${
+                                car.isAvailable
+                                  ? "bg-green-50 text-green-600 hover:bg-green-100"
+                                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                              }
                             `}
                           >
-                            {car.isAvailable ? 'Listed' : 'Hidden'}
+                            {car.isAvailable ? "Listed" : "Hidden"}
                           </button>
-                            
-                          {/* EDIT */}
+
                           <button
                             type="button"
                             onClick={() => navigate(`/owner/edit-car/${car._id}`)}
@@ -340,7 +313,6 @@ const ManageCars = () => {
                             />
                           </button>
 
-                          {/* DELETE */}
                           <button
                             type="button"
                             onClick={() => handleDelete(car._id)}
@@ -358,7 +330,6 @@ const ManageCars = () => {
                             />
                           </button>
 
-                          {/* MOBILE STATUS */}
                           <button
                             type="button"
                             onClick={() => handleToggleAvailability(car._id)}
@@ -371,18 +342,17 @@ const ManageCars = () => {
                           >
                             {status}
                           </button>
-
                         </div>
                       </td>
                     </tr>
-                  )
+                  );
                 })}
             </tbody>
           </table>
         </div>
       </div>
     </div>
-  )
-}
+  );
+};
 
-export default ManageCars
+export default ManageCars;

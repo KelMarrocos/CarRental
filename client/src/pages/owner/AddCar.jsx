@@ -2,24 +2,51 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import Title from "../../components/owner/Title";
 import CarForm from "../../components/owner/CarForm";
-
-/*
-  AddCar Page
-  -----------
-  Responsável por:
-  ✔ exibir a página de criação
-  ✔ enviar payload do CarForm (futuro: API)
-*/
+import { useAppContext } from "../../context/AppContext";
+import { toast } from "react-hot-toast";
 
 const AddCar = () => {
+  const { axios } = useAppContext();
   const navigate = useNavigate();
 
   const handleCreate = async (payload) => {
-    // FUTURO: enviar para API (FormData com coverFile + galleryFiles)
-    console.log("CREATE payload:", payload);
+  try {
+    const formData = new FormData();
 
-    // UX: depois de criar, volta pra lista
-    navigate("/owner/manage-cars");
+    // O CarForm manda os campos no próprio payload
+      const {
+        coverFile,
+        galleryFiles = [],
+        coverUrl,      // preview
+        galleryUrls,   // preview
+        ...carFields
+      } = payload;
+
+      if (!coverFile) {
+        toast.error("Selecione a imagem de capa.");
+        return;
+      }
+
+      formData.append("carData", JSON.stringify(carFields));
+      formData.append("image", coverFile); // nome: image (capa)
+
+      // nome: images (extras)
+      galleryFiles.forEach((f) => f && formData.append("images", f));
+
+      const { data } = await axios.post("/api/owner/add-car", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      if (!data?.success) {
+        toast.error(data?.message || "Failed to add car");
+        return;
+      }
+
+      toast.success(data?.message || "Car Added");
+      navigate("/owner/manage-cars");
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error?.message || "Add failed");
+    }
   };
 
   return (

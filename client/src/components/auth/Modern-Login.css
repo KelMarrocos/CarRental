@@ -1,13 +1,13 @@
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap');
 
-/* ✅ Escopado: não quebra o resto do app */
+/* Escopado: não quebra o resto do app */
 .login-page,
 .login-page * {
   box-sizing: border-box;
   font-family: 'Montserrat', sans-serif;
 }
 
-/* ✅ Em vez de body */
+/* Em vez de body */
 .login-page{
   background-color: #c9d6ff;
   background: linear-gradient(to right, #e2e2e2, #c9d6ff);

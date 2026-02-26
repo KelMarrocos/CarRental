@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useMemo } from 'react'
-import { dummyDashboardData } from '../../data/mockData'
 import { assets } from '../../constants/assets'
 import Title from '../../components/owner/Title'
+import { useAppContext } from '../../context/AppContext'
+import toast from 'react-hot-toast'
 
 /*
   Dashboard (Owner/Admin)
@@ -20,7 +21,8 @@ import Title from '../../components/owner/Title'
 
 const Dashboard = () => {
 
-  const currency = import.meta.env.VITE_CURRENCY
+  const {axios, isOwner, currency} = useAppContext()
+
 
   /* ================================
    Função de cor do status
@@ -74,18 +76,29 @@ const Dashboard = () => {
     },
     {
       title: "Confirmed",
-      value: data.completedBookings, // ✅ corrigido (antes estava data.tota.completedBookings)
+      value: data.completedBookings, 
       icon: assets.listIconColored
     },
   ], [data])
 
-  /*
-    Simula fetch inicial.
-    Futuro: trocar por chamada real na API.
-  */
+ 
+  const fetchDashboardData = async ()=>{
+    try {
+      const { data } = await axios.get('/api/owner/dashboard')
+      if(data.success){
+        setData(data.dashboardData)
+      }else{
+        toast.error(data.message)
+      }
+    } catch (error) {
+      toast.error(error.message)
+    }
+  }
   useEffect(() => {
-    setData(dummyDashboardData)
-  }, [])
+    if(isOwner){
+      fetchDashboardData
+    }
+  }, [isOwner])
 
   return (
     <div className='px-4 pt-10 md:px-10 flex-1'>
