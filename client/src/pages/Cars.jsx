@@ -6,18 +6,26 @@ import { useAppContext } from "../context/AppContext";
 import { toast } from "react-hot-toast";
 import { useLocation, useNavigate } from "react-router-dom";
 
+// normaliza para comparar
 const norm = (v) => String(v ?? "").trim().toLowerCase();
+
+// normaliza para exibir (evita sedan/SEDAN duplicado)
+const normalizeLabel = (v) => {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  // Title Case simples
+  return s.toLowerCase().replace(/\b\w/g, (m) => m.toUpperCase());
+};
 
 const Cars = () => {
   const { axios, cars: carsFromContext = [] } = useAppContext();
   const location = useLocation();
   const navigate = useNavigate();
 
-  // dropdown filtro na página
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filterRef = useRef(null);
 
-  // lê params
+  // ====== URL -> STATE ======
   const urlParams = useMemo(() => {
     const params = new URLSearchParams(location.search);
     return {
@@ -29,7 +37,6 @@ const Cars = () => {
     };
   }, [location.search]);
 
-  // estados controlados (espelham URL)
   const [input, setInput] = useState(urlParams.q);
   const [category, setCategory] = useState(urlParams.category);
   const [transmission, setTransmission] = useState(urlParams.transmission);
@@ -39,31 +46,22 @@ const Cars = () => {
   const [cars, setCars] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // ✅ Opções dinâmicas (do que existe mesmo)
-  const options = useMemo(() => {
-    const uniq = (arr) =>
-      Array.from(new Set(arr.map((x) => String(x ?? "").trim()).filter(Boolean)));
-
-    // prioridade: cars do context (já carregados), fallback: cars do fetch local
-    const base = (carsFromContext?.length ? carsFromContext : cars) || [];
-
-    return {
-      categories: uniq(base.map((c) => c.category)),
-      transmissions: uniq(base.map((c) => c.transmission)),
-      fuels: uniq(base.map((c) => c.fuel_type)),
-    };
-  }, [carsFromContext, cars]);
-
-  // ✅ Sync quando URL mudar (mantém navbar/página alinhados)
+  // Sync quando URL mudar
   useEffect(() => {
     setInput(urlParams.q);
     setCategory(urlParams.category);
     setTransmission(urlParams.transmission);
     setFuel(urlParams.fuel);
     setMaxPrice(urlParams.maxPrice);
-  }, [urlParams.q, urlParams.category, urlParams.transmission, urlParams.fuel, urlParams.maxPrice]);
+  }, [
+    urlParams.q,
+    urlParams.category,
+    urlParams.transmission,
+    urlParams.fuel,
+    urlParams.maxPrice,
+  ]);
 
-  // fecha dropdown clicando fora
+  // fecha popover clicando fora
   useEffect(() => {
     const onClickOutside = (e) => {
       if (!filtersOpen) return;
@@ -75,7 +73,7 @@ const Cars = () => {
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, [filtersOpen]);
 
-  // fetch cars
+  // fetch cars (fonte real)
   useEffect(() => {
     const fetchCars = async () => {
       try {
@@ -88,7 +86,6 @@ const Cars = () => {
           return;
         }
 
-        // só disponíveis
         const list = (data.cars || []).filter((c) => {
           if (typeof c.isAvailable === "boolean") return c.isAvailable;
           if (typeof c.isAvaliable === "boolean") return c.isAvaliable;
@@ -97,7 +94,11 @@ const Cars = () => {
 
         setCars(list);
       } catch (error) {
-        toast.error(error?.response?.data?.message || error?.message || "Failed to load cars");
+        toast.error(
+          error?.response?.data?.message ||
+            error?.message ||
+            "Failed to load cars"
+        );
         setCars([]);
       } finally {
         setLoading(false);
@@ -107,7 +108,7 @@ const Cars = () => {
     fetchCars();
   }, [axios]);
 
-  // helper: atualizar URL preservando tudo
+  // helper: setar URL preservando params
   const setUrlParams = (next, replace = true) => {
     const params = new URLSearchParams(location.search);
 
@@ -121,7 +122,37 @@ const Cars = () => {
     navigate(qs ? `/cars?${qs}` : "/cars", { replace });
   };
 
-  // Apply e Clear (página)
+  // opções dinâmicas (do que existe)
+  const options = useMemo(() => {
+    const base =
+      (carsFromContext?.length ? carsFromContext : cars) || [];
+
+    const addUnique = (set, value) => {
+      const label = normalizeLabel(value);
+      if (!label) return;
+      set.add(label);
+    };
+
+    const categories = new Set();
+    const transmissions = new Set();
+    const fuels = new Set();
+
+    base.forEach((c) => {
+      addUnique(categories, c?.category);
+      addUnique(transmissions, c?.transmission);
+      addUnique(fuels, c?.fuel_type);
+    });
+
+    const sortAZ = (a, b) => a.localeCompare(b);
+
+    return {
+      categories: Array.from(categories).sort(sortAZ),
+      transmissions: Array.from(transmissions).sort(sortAZ),
+      fuels: Array.from(fuels).sort(sortAZ),
+    };
+  }, [carsFromContext, cars]);
+
+  // apply/clear
   const applyFilters = () => {
     setUrlParams({
       q: input,
@@ -138,11 +169,16 @@ const Cars = () => {
     setTransmission("");
     setFuel("");
     setMaxPrice("");
-    setUrlParams({ category: "", transmission: "", fuel: "", maxPrice: "" });
+    setUrlParams({
+      category: "",
+      transmission: "",
+      fuel: "",
+      maxPrice: "",
+    });
     setFiltersOpen(false);
   };
 
-  // quando digitar, atualiza só q com debounce (não explode history)
+  // debounce só do q
   useEffect(() => {
     const t = setTimeout(() => {
       setUrlParams({ q: input });
@@ -151,7 +187,7 @@ const Cars = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [input]);
 
-  // lista filtrada
+  // filtragem
   const filteredCars = useMemo(() => {
     const q = norm(input);
     const c = norm(category);
@@ -159,9 +195,12 @@ const Cars = () => {
     const f = norm(fuel);
 
     const max =
-      maxPrice !== "" && !Number.isNaN(Number(maxPrice)) ? Number(maxPrice) : null;
+      maxPrice !== "" && !Number.isNaN(Number(maxPrice))
+        ? Number(maxPrice)
+        : null;
 
     return cars.filter((car) => {
+      // search
       if (q) {
         const hay = [
           car.brand,
@@ -177,10 +216,12 @@ const Cars = () => {
         if (!norm(hay).includes(q)) return false;
       }
 
+      // filtros
       if (c && norm(car.category) !== c) return false;
       if (t && norm(car.transmission) !== t) return false;
       if (f && norm(car.fuel_type) !== f) return false;
 
+      // max price
       if (max !== null) {
         const p = Number(car.pricePerDay);
         if (Number.isNaN(p)) return false;
@@ -193,14 +234,12 @@ const Cars = () => {
 
   return (
     <div className="bg-light min-h-screen">
-      {/* HERO */}
       <div className="flex flex-col items-center py-20 max-md:px-4">
         <Title
           title="Available Cars"
           subtitle="Browse our select of premium vehicles available for your next adventure."
         />
 
-        {/* SEARCH BAR */}
         <div className="flex items-center bg-white px-4 mt-6 max-w-140 w-full h-12 rounded-full shadow relative">
           <img src={assets.search_icon} alt="" className="w-4.5 h-4.5 mr-2" />
 
@@ -212,7 +251,7 @@ const Cars = () => {
             className="w-full h-full outline-none text-gray-500 bg-transparent"
           />
 
-          {/* botão filtro */}
+          {/* filtro */}
           <div ref={filterRef} className="relative">
             <button
               type="button"
@@ -225,11 +264,15 @@ const Cars = () => {
 
             {filtersOpen && (
               <div className="absolute right-0 top-full mt-2 w-[320px] bg-white border border-bordercolor rounded-2xl shadow-lg p-4 z-50">
-                <p className="text-sm font-semibold text-gray-800 mb-3">Filters</p>
+                <p className="text-sm font-semibold text-gray-800 mb-3">
+                  Filters
+                </p>
 
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Category</label>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Category
+                    </label>
                     <select
                       value={category}
                       onChange={(e) => setCategory(e.target.value)}
@@ -237,13 +280,17 @@ const Cars = () => {
                     >
                       <option value="">All</option>
                       {options.categories.map((x) => (
-                        <option key={x} value={x}>{x}</option>
+                        <option key={x} value={x}>
+                          {x}
+                        </option>
                       ))}
                     </select>
                   </div>
 
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Transmission</label>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Transmission
+                    </label>
                     <select
                       value={transmission}
                       onChange={(e) => setTransmission(e.target.value)}
@@ -251,13 +298,17 @@ const Cars = () => {
                     >
                       <option value="">All</option>
                       {options.transmissions.map((x) => (
-                        <option key={x} value={x}>{x}</option>
+                        <option key={x} value={x}>
+                          {x}
+                        </option>
                       ))}
                     </select>
                   </div>
 
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Fuel</label>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Fuel
+                    </label>
                     <select
                       value={fuel}
                       onChange={(e) => setFuel(e.target.value)}
@@ -265,13 +316,17 @@ const Cars = () => {
                     >
                       <option value="">All</option>
                       {options.fuels.map((x) => (
-                        <option key={x} value={x}>{x}</option>
+                        <option key={x} value={x}>
+                          {x}
+                        </option>
                       ))}
                     </select>
                   </div>
 
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Max price / day</label>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Max price / day
+                    </label>
                     <input
                       type="number"
                       value={maxPrice}
@@ -305,13 +360,28 @@ const Cars = () => {
           </div>
         </div>
 
-        {/* chips de filtros ativos */}
         {(category || transmission || fuel || maxPrice) && (
           <div className="mt-4 flex flex-wrap gap-2 text-xs text-gray-600">
-            {category && <span className="px-3 py-1 rounded-full bg-white border">Category: <b>{category}</b></span>}
-            {transmission && <span className="px-3 py-1 rounded-full bg-white border">Transmission: <b>{transmission}</b></span>}
-            {fuel && <span className="px-3 py-1 rounded-full bg-white border">Fuel: <b>{fuel}</b></span>}
-            {maxPrice && <span className="px-3 py-1 rounded-full bg-white border">Max/day: <b>{maxPrice}</b></span>}
+            {category && (
+              <span className="px-3 py-1 rounded-full bg-white border">
+                Category: <b>{category}</b>
+              </span>
+            )}
+            {transmission && (
+              <span className="px-3 py-1 rounded-full bg-white border">
+                Transmission: <b>{transmission}</b>
+              </span>
+            )}
+            {fuel && (
+              <span className="px-3 py-1 rounded-full bg-white border">
+                Fuel: <b>{fuel}</b>
+              </span>
+            )}
+            {maxPrice && (
+              <span className="px-3 py-1 rounded-full bg-white border">
+                Max/day: <b>{maxPrice}</b>
+              </span>
+            )}
             <button
               type="button"
               onClick={clearFilters}
@@ -323,7 +393,6 @@ const Cars = () => {
         )}
       </div>
 
-      {/* LISTAGEM */}
       <div className="px-6 md:px-16 lg:px-24 xl:px-32 mt-10">
         <p className="text-gray-500 xl:px-26 max-w-7xl mx-auto">
           Showing {loading ? "..." : filteredCars.length} Cars
@@ -338,13 +407,16 @@ const Cars = () => {
             </>
           )}
 
-          {!loading && filteredCars.map((car) => <CarCard key={car._id} car={car} />)}
+          {!loading &&
+            filteredCars.map((car) => <CarCard key={car._id} car={car} />)}
 
           {!loading && filteredCars.length === 0 && (
             <div className="col-span-full text-center text-gray-500 py-10">
-              No cars found{input ? (
+              No cars found
+              {input ? (
                 <>
-                  {" "}for <span className="font-medium">"{input}"</span>
+                  {" "}
+                  for <span className="font-medium">"{input}"</span>
                 </>
               ) : null}
             </div>

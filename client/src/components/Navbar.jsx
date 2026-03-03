@@ -4,7 +4,13 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAppContext } from "../context/AppContext";
 import { toast } from "react-hot-toast";
 
-const norm = (v) => String(v ?? "").trim();
+// normaliza para comparar
+const norm = (v) => String(v ?? "").trim().toLowerCase();
+const normalizeLabel = (v) => {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  return s.toLowerCase().replace(/\b\w/g, (m) => m.toUpperCase());
+};
 
 const Navbar = ({ setShowLogin: setShowLoginProp }) => {
   const {
@@ -15,7 +21,7 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
     axios,
     setIsOwner,
     token,
-    cars: carsFromContext = [], // vem do AppContext (já carregado do /api/user/cars)
+    cars: carsFromContext = [],
   } = useAppContext();
 
   const setShowLogin =
@@ -30,50 +36,55 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
 
   const [open, setOpen] = useState(false);
 
-  // Search + Filters (controlados e sincronizados com URL)
+  // Search + Filters
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
   const [transmission, setTransmission] = useState("");
   const [fuel, setFuel] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
 
-  // Dropdown (popover)
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filterBoxRef = useRef(null);
 
   const isHome = location.pathname === "/";
 
-  // Opções dinâmicas vindas dos cars reais
+  // opções dinâmicas iguais ao Cars.jsx
   const options = useMemo(() => {
-    const uniq = (arr) =>
-      Array.from(new Set(arr.map((x) => norm(x)).filter(Boolean)));
+    const addUnique = (set, value) => {
+      const label = normalizeLabel(value);
+      if (!label) return;
+      set.add(label);
+    };
+
+    const categories = new Set();
+    const transmissions = new Set();
+    const fuels = new Set();
+
+    (carsFromContext || []).forEach((c) => {
+      addUnique(categories, c?.category);
+      addUnique(transmissions, c?.transmission);
+      addUnique(fuels, c?.fuel_type);
+    });
+
+    const sortAZ = (a, b) => a.localeCompare(b);
 
     return {
-      categories: uniq(carsFromContext.map((c) => c.category)),
-      transmissions: uniq(carsFromContext.map((c) => c.transmission)),
-      fuels: uniq(carsFromContext.map((c) => c.fuel_type)),
+      categories: Array.from(categories).sort(sortAZ),
+      transmissions: Array.from(transmissions).sort(sortAZ),
+      fuels: Array.from(fuels).sort(sortAZ),
     };
   }, [carsFromContext]);
 
-  // Sync com URL (sempre que mudar a URL, atualiza estados)
+  // URL -> state (sempre sincronizado)
   useEffect(() => {
     const params = new URLSearchParams(location.search);
 
-    const q = params.get("q") || "";
-    const c = params.get("category") || "";
-    const t = params.get("transmission") || "";
-    const f = params.get("fuel") || "";
-    const m = params.get("maxPrice") || "";
-
-    // Mantém os 2 sincronizados sempre, mas só faz sentido mostrar preenchido no /cars
-    if (location.pathname === "/cars") {
-      setQuery(q);
-      setCategory(c);
-      setTransmission(t);
-      setFuel(f);
-      setMaxPrice(m);
-    }
-  }, [location.pathname, location.search]);
+    setQuery(params.get("q") || "");
+    setCategory(params.get("category") || "");
+    setTransmission(params.get("transmission") || "");
+    setFuel(params.get("fuel") || "");
+    setMaxPrice(params.get("maxPrice") || "");
+  }, [location.search]);
 
   // fecha dropdown ao clicar fora
   useEffect(() => {
@@ -93,9 +104,7 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
       if (data.success) {
         setIsOwner(true);
         toast.success(data.message);
-      } else {
-        toast.error(data.message);
-      }
+      } else toast.error(data.message);
     } catch (error) {
       toast.error(error?.response?.data?.message || error.message);
     }
@@ -124,12 +133,12 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
     setShowLogin(true);
   };
 
-  // Helper: navegar para /cars com params
+  // helper: navegar para /cars com params
   const goToCarsWithParams = (paramsObj, replace = false) => {
     const params = new URLSearchParams();
 
     Object.entries(paramsObj).forEach(([key, value]) => {
-      const v = norm(value);
+      const v = String(value ?? "").trim();
       if (v) params.set(key, v);
     });
 
@@ -137,7 +146,6 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
     navigate(qs ? `/cars?${qs}` : "/cars", { replace });
   };
 
-  // pesquisar (Enter ou lupa)
   const submitSearch = () => {
     setOpen(false);
 
@@ -160,7 +168,6 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
     setTransmission("");
     setFuel("");
     setMaxPrice("");
-    // mantém query
     goToCarsWithParams({ q: query }, true);
     setFiltersOpen(false);
   };
@@ -171,12 +178,10 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
       py-4 text-gray-600 border-b border-bordercolor relative transition-all
       ${isHome ? "bg-light" : "bg-white"}`}
     >
-      {/* Logo */}
       <Link to="/" onClick={() => setOpen(false)}>
         <img src={assets.logo} alt="Company logo" className="h-8" />
       </Link>
 
-      {/* Menu */}
       <nav
         className={`max-sm:fixed max-sm:h-screen max-sm:w-full max-sm:top-16 
         max-sm:border-t border-bordercolor right-0 flex flex-col sm:flex-row 
@@ -184,7 +189,6 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
         duration-300 z-50 ${isHome ? "bg-light" : "bg-white"}
         ${open ? "max-sm:translate-x-0" : "max-sm:translate-x-full"}`}
       >
-        {/* Links */}
         {menuLinks.map((link) => (
           <Link
             key={link.path}
@@ -215,7 +219,6 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
             placeholder="Search cars..."
           />
 
-          {/* Popover ancorado no ícone */}
           <div className="relative" ref={filterBoxRef}>
             <button
               type="button"
@@ -234,7 +237,6 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
                 <p className="text-sm font-semibold text-gray-800 mb-3">Filters</p>
 
                 <div className="space-y-3">
-                  {/* Category */}
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Category</label>
                     <select
@@ -244,14 +246,11 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
                     >
                       <option value="">All</option>
                       {options.categories.map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
+                        <option key={c} value={c}>{c}</option>
                       ))}
                     </select>
                   </div>
 
-                  {/* Transmission */}
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Transmission</label>
                     <select
@@ -261,14 +260,11 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
                     >
                       <option value="">All</option>
                       {options.transmissions.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
+                        <option key={t} value={t}>{t}</option>
                       ))}
                     </select>
                   </div>
 
-                  {/* Fuel */}
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Fuel</label>
                     <select
@@ -278,14 +274,11 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
                     >
                       <option value="">All</option>
                       {options.fuels.map((f) => (
-                        <option key={f} value={f}>
-                          {f}
-                        </option>
+                        <option key={f} value={f}>{f}</option>
                       ))}
                     </select>
                   </div>
 
-                  {/* Max price */}
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Max price / day</label>
                     <input
@@ -320,7 +313,6 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
             )}
           </div>
 
-          {/* lupa */}
           <button
             type="button"
             onClick={submitSearch}
@@ -331,7 +323,6 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
           </button>
         </div>
 
-        {/* Actions */}
         <div className="flex max-sm:flex-col items-start sm:items-center gap-6">
           <button
             onClick={handleListCarsClick}
@@ -352,7 +343,6 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
         </div>
       </nav>
 
-      {/* Mobile toggle */}
       <button
         className="sm:hidden cursor-pointer"
         aria-label="Toggle menu"
