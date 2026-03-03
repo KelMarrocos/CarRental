@@ -92,7 +92,7 @@ export const AppProvider = ({ children }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ Sempre que token mudar: aplica header + busca user
+  // Sempre que token mudar: aplica header + busca user
   useEffect(() => {
     applyAuthHeader(token);
 
