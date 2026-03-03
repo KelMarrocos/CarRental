@@ -174,8 +174,9 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
 
   return (
     <header
-      className={`flex items-center justify-between px-6 md:px-16 lg:px-24 xl:px-32 
-      py-4 text-gray-600 border-b border-bordercolor relative transition-all
+      className={`sticky top-0 z-50 flex items-center justify-between
+      px-6 md:px-16 lg:px-24 xl:px-32 py-4
+      text-gray-600 border-b border-bordercolor
       ${isHome ? "bg-light" : "bg-white"}`}
     >
       <Link to="/" onClick={() => setOpen(false)}>
