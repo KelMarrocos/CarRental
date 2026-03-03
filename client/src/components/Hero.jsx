@@ -104,8 +104,18 @@ const Hero = () => {
 
   return (
     <section className="h-screen flex flex-col items-center justify-center gap-14 bg-light text-center">
-      <h1 className="text-4xl md:text-5xl font-semibold">Luxury cars on Rent</h1>
-
+        <h1
+        className="
+            mt-6 sm:mt-0
+            text-3xl sm:text-4xl md:text-5xl
+            font-semibold
+            leading-tight
+            px-4
+            break-words
+        "
+        >
+        Luxury cars on Rent
+        </h1>
       <form
         onSubmit={handleSubmit}
         className="flex flex-col md:flex-row items-start md:items-center
@@ -113,28 +123,31 @@ const Hero = () => {
           bg-white shadow-[0px_8px_20px_rgba(0,0,0,0.1)]"
       >
         <div className="flex flex-col md:flex-row items-start md:items-center gap-10 md:ml-8">
+          
           {/* LOCATION */}
-          <div className="flex flex-col items-start gap-2">
+            <div className="flex flex-col items-start gap-2 w-full md:w-auto">
             <label className="text-sm font-medium">Pickup Location</label>
 
             <select
-              required
-              value={pickupLocation}
-              onChange={(e) => setPickupLocation(e.target.value)}
-              className="border rounded-md px-2 py-1 min-w-[180px]"
+                required
+                value={pickupLocation}
+                onChange={(e) => setPickupLocation(e.target.value)}
+                className="
+                border rounded-md px-2 py-2 text-sm
+                w-full md:w-48
+                bg-white
+                "
             >
-              <option value="">Select location</option>
-              {locations.map((loc) => (
-                <option key={loc} value={loc}>
-                  {loc}
-                </option>
-              ))}
+                <option value="">Select location</option>
+                {locations.map((loc) => (
+                <option key={loc} value={loc}>{loc}</option>
+                ))}
             </select>
 
             <p className="px-1 text-sm text-gray-500">
-              {pickupLocation ? pickupLocation : "Please select location"}
+                {pickupLocation ? pickupLocation : "Please select location"}
             </p>
-          </div>
+            </div>
 
           {/* PICKUP DATE */}
           <div className="flex flex-col items-start gap-2">

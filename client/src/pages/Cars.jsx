@@ -34,6 +34,10 @@ const Cars = () => {
       transmission: params.get("transmission") || "",
       fuel: params.get("fuel") || "",
       maxPrice: params.get("maxPrice") || "",
+
+      location: params.get("location") || "",
+      pickupDate: params.get("pickupDate") || "",
+      returnDate: params.get("returnDate") || "",
     };
   }, [location.search]);
 
@@ -46,6 +50,10 @@ const Cars = () => {
   const [cars, setCars] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  const [pickupLocation, setPickupLocation] = useState(urlParams.location);
+  const [pickupDate, setPickupDate] = useState(urlParams.pickupDate);
+  const [returnDate, setReturnDate] = useState(urlParams.returnDate);
+
   // Sync quando URL mudar
   useEffect(() => {
     setInput(urlParams.q);
@@ -53,6 +61,10 @@ const Cars = () => {
     setTransmission(urlParams.transmission);
     setFuel(urlParams.fuel);
     setMaxPrice(urlParams.maxPrice);
+
+    setPickupLocation(urlParams.location);
+    setPickupDate(urlParams.pickupDate);
+    setReturnDate(urlParams.returnDate);
   }, [
     urlParams.q,
     urlParams.category,
@@ -74,10 +86,31 @@ const Cars = () => {
   }, [filtersOpen]);
 
   // fetch cars (fonte real)
-  useEffect(() => {
-    const fetchCars = async () => {
-      try {
-        setLoading(true);
+ useEffect(() => {
+  const fetchCars = async () => {
+    try {
+      setLoading(true);
+
+      const hasAvailabilityParams =
+        urlParams.location && urlParams.pickupDate && urlParams.returnDate;
+
+      let list = [];
+
+      if (hasAvailabilityParams) {
+        const { data } = await axios.post("/api/bookings/check-availability", {
+          location: urlParams.location,
+          pickupDate: urlParams.pickupDate,
+          returnDate: urlParams.returnDate,
+        });
+
+        if (!data?.success) {
+          toast.error(data?.message || "Failed to check availability");
+          setCars([]);
+          return;
+        }
+
+        list = data.availableCars || [];
+      } else {
         const { data } = await axios.get("/api/user/cars");
 
         if (!data?.success) {
@@ -86,27 +119,29 @@ const Cars = () => {
           return;
         }
 
-        const list = (data.cars || []).filter((c) => {
-          if (typeof c.isAvailable === "boolean") return c.isAvailable;
-          if (typeof c.isAvaliable === "boolean") return c.isAvaliable;
-          return true;
-        });
-
-        setCars(list);
-      } catch (error) {
-        toast.error(
-          error?.response?.data?.message ||
-            error?.message ||
-            "Failed to load cars"
-        );
-        setCars([]);
-      } finally {
-        setLoading(false);
+        list = data.cars || [];
       }
-    };
 
-    fetchCars();
-  }, [axios]);
+      // só disponíveis (compat com typo antigo)
+      const availableOnly = list.filter((c) => {
+        if (typeof c.isAvailable === "boolean") return c.isAvailable;
+        if (typeof c.isAvaliable === "boolean") return c.isAvaliable;
+        return true;
+      });
+
+      setCars(availableOnly);
+    } catch (error) {
+      toast.error(
+        error?.response?.data?.message || error?.message || "Failed to load cars"
+      );
+      setCars([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  fetchCars();
+}, [axios, urlParams.location, urlParams.pickupDate, urlParams.returnDate]);
 
   // helper: setar URL preservando params
   const setUrlParams = (next, replace = true) => {
@@ -160,6 +195,9 @@ const Cars = () => {
       transmission,
       fuel,
       maxPrice,
+      location: pickupLocation,
+      pickupDate,
+      returnDate,
     });
     setFiltersOpen(false);
   };
@@ -174,6 +212,9 @@ const Cars = () => {
       transmission: "",
       fuel: "",
       maxPrice: "",
+      location: pickupLocation,
+      pickupDate,
+      returnDate,
     });
     setFiltersOpen(false);
   };
