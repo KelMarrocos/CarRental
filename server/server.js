@@ -7,50 +7,35 @@ import userRouter from "./routes/userRoutes.js";
 import ownerRouter from "./routes/ownerRoutes.js";
 import bookingRouter from "./routes/bookingRoutes.js";
 
-// Initialize Express App
 const app = express();
 
-// Connect Database
 await connectDB();
 
-// Middleware
-const allowedOrigins = [
-  "http://localhost:5173",
-  "https://car-rental-client.vercel.app"
-];
+/**
+ * CORS: como você usa Authorization Bearer (não cookies),
+ * o melhor é refletir o Origin automaticamente.
+ */
+const corsOptions = {
+  origin: true, // reflete o Origin da requisição
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  optionsSuccessStatus: 204,
+};
 
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      if (!origin) return callback(null, true);
+// CORS precisa vir ANTES das rotas
+app.use(cors(corsOptions));
 
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      } else {
-        return callback(new Error("Not allowed by CORS"));
-      }
-    },
-    credentials: true,
-  })
-);
-
-// preflight sem quebrar (NÃO use "*")
-app.options(/.*/, cors());
-
+// Preflight (OPTIONS) para qualquer rota
+app.options(/.*/, cors(corsOptions));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Test Route
 app.get("/", (req, res) => res.send("Server is running"));
 
-// Routes
 app.use("/api/user", userRouter);
 app.use("/api/owner", ownerRouter);
 app.use("/api/bookings", bookingRouter);
 
 const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () =>
-  console.log(`Server running on port ${PORT}`)
-);
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
