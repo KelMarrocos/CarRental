@@ -10,7 +10,7 @@ import { protect } from "../middleware/auth.js";
 
 const bookingRouter = express.Router();
 
-// Public (ou pode proteger também se quiser)
+// Public (ou proteja se quiser)
 bookingRouter.post("/check-availability", checkAvailabilityofCars);
 
 // User

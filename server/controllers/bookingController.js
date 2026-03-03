@@ -2,136 +2,169 @@ import Booking from "../models/Booking.js";
 import Car from "../models/Car.js";
 
 /*
-  Verifica se existe alguma reserva que SOBREPOE o intervalo informado.
+  overlap rule (conflito):
+  start < existingEnd && end > existingStart
 
-  Overlap rule:
-  pickup <= existingReturn AND return >= existingPickup
+  E só conta reservas "pending" e "confirmed" (cancelled não bloqueia).
 */
-const checkAvailability = async (carId, pickupDate, returnDate) => {
-  const bookings = await Booking.find({
+const hasOverlap = async ({ carId, pickupDate, returnDate }) => {
+  return Booking.exists({
     car: carId,
-    pickupDate: { $lte: returnDate },
-    returnDate: { $gte: pickupDate },
+    status: { $in: ["pending", "confirmed"] },
+    pickupDate: { $lt: new Date(returnDate) },
+    returnDate: { $gt: new Date(pickupDate) },
   });
-
-  return bookings.length === 0;
 };
 
-// API: checar carros disponíveis por location + datas
+// POST /api/bookings/check-availability
 export const checkAvailabilityofCars = async (req, res) => {
   try {
     const { location, pickupDate, returnDate } = req.body;
 
     if (!location || !pickupDate || !returnDate) {
-      return res.json({ success: false, message: "location, pickupDate, returnDate are required" });
+      return res.status(400).json({
+        success: false,
+        message: "location, pickupDate, returnDate are required",
+      });
     }
 
-    const picked = new Date(pickupDate);
-    const returned = new Date(returnDate);
+    const start = new Date(pickupDate);
+    const end = new Date(returnDate);
 
-    if (Number.isNaN(picked.getTime()) || Number.isNaN(returned.getTime())) {
-      return res.json({ success: false, message: "Invalid date format" });
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return res.status(400).json({ success: false, message: "Invalid date format" });
     }
 
-    if (returned <= picked) {
-      return res.json({ success: false, message: "returnDate must be after pickupDate" });
+    if (end <= start) {
+      return res.status(400).json({
+        success: false,
+        message: "returnDate must be after pickupDate",
+      });
     }
 
-    // Carros cadastrados como disponíveis
-    const cars = await Car.find({ location, isAvailable: true });
+    // pega carros disponíveis na localização
+    const cars = await Car.find({ location, isAvailable: true }).sort({ createdAt: -1 });
 
-    // Checa disponibilidade real por datas
+    // filtra os que NÃO têm conflito no intervalo
     const availableCars = (
       await Promise.all(
         cars.map(async (car) => {
-          const free = await checkAvailability(car._id, picked, returned);
-          return free ? car : null;
+          const conflict = await hasOverlap({
+            carId: car._id,
+            pickupDate: start,
+            returnDate: end,
+          });
+          return conflict ? null : car;
         })
       )
     ).filter(Boolean);
 
-    res.json({ success: true, availableCars });
+    return res.json({ success: true, availableCars });
   } catch (error) {
     console.log(error.message);
-    res.json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// API: criar booking
+// POST /api/bookings/create (PROTEGIDO)
 export const createBooking = async (req, res) => {
   try {
-    const { _id: userId } = req.user;
-    const { car: carId, pickupDate, returnDate } = req.body;
+    const userId = req.user._id;
+    const { carId, pickupDate, returnDate } = req.body;
 
     if (!carId || !pickupDate || !returnDate) {
-      return res.json({ success: false, message: "car, pickupDate, returnDate are required" });
+      return res.status(400).json({
+        success: false,
+        message: "carId, pickupDate, returnDate are required",
+      });
     }
 
-    const picked = new Date(pickupDate);
-    const returned = new Date(returnDate);
+    const start = new Date(pickupDate);
+    const end = new Date(returnDate);
 
-    if (Number.isNaN(picked.getTime()) || Number.isNaN(returned.getTime())) {
-      return res.json({ success: false, message: "Invalid date format" });
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return res.status(400).json({ success: false, message: "Invalid dates" });
     }
 
-    if (returned <= picked) {
-      return res.json({ success: false, message: "returnDate must be after pickupDate" });
+    const diffDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+    if (diffDays <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Return date must be after pickup date",
+      });
     }
 
-    const carData = await Car.findById(carId);
-    if (!carData) {
-      return res.json({ success: false, message: "Car not found" });
+    const car = await Car.findById(carId);
+    if (!car) return res.status(404).json({ success: false, message: "Car not found" });
+
+    // se carro está indisponível, não deixa reservar
+    if (typeof car.isAvailable === "boolean" && !car.isAvailable) {
+      return res.status(400).json({ success: false, message: "Car is not available" });
     }
 
-    const isAvailable = await checkAvailability(carId, picked, returned);
-    if (!isAvailable) {
-      return res.json({ success: false, message: "Car is not available" });
-    }
-
-    // Número de dias (mínimo 1)
-    const msPerDay = 1000 * 60 * 60 * 24;
-    const noOfDays = Math.max(1, Math.ceil((returned - picked) / msPerDay));
-
-    const price = carData.pricePerDay * noOfDays;
-
-    await Booking.create({
-      car: carId,
-      owner: carData.owner,
-      user: userId,
-      pickupDate: picked,
-      returnDate: returned,
-      price,
-      status: "pending", // opcional: define um default no schema
+    // bloqueia conflito
+    const conflict = await hasOverlap({
+      carId,
+      pickupDate: start,
+      returnDate: end,
     });
 
-    res.json({ success: true, message: "Booking Created" });
+    if (conflict) {
+      return res.status(409).json({
+        success: false,
+        message: "This car is already booked for these dates",
+      });
+    }
+
+    const pricePerDay = Number(car.pricePerDay || 0);
+    const price = diffDays * pricePerDay;
+
+    const booking = await Booking.create({
+      user: userId,
+      owner: car.owner,
+      car: car._id,
+      pickupDate: start,
+      returnDate: end,
+      totalDays: diffDays,
+      pricePerDay,
+      price,
+      status: "pending",
+    });
+
+    const populated = await Booking.findById(booking._id).populate("car");
+
+    return res.json({
+      success: true,
+      message: "Booking created",
+      booking: populated,
+    });
   } catch (error) {
     console.log(error.message);
-    res.json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// API: listar reservas do usuário
+// GET /api/bookings/user (PROTEGIDO)
 export const getUserBookings = async (req, res) => {
   try {
-    const { _id: userId } = req.user;
+    const userId = req.user._id;
 
     const bookings = await Booking.find({ user: userId })
-      .populate("car") // nome do campo no schema
+      .populate("car")
       .sort({ createdAt: -1 });
 
-    res.json({ success: true, bookings });
+    return res.json({ success: true, bookings });
   } catch (error) {
     console.log(error.message);
-    res.json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// API: listar reservas do dono
+// GET /api/bookings/owner (PROTEGIDO)
 export const getOwnerBookings = async (req, res) => {
   try {
     if (req.user.role !== "owner") {
-      return res.json({ success: false, message: "Unauthorized" });
+      return res.status(403).json({ success: false, message: "Unauthorized" });
     }
 
     const bookings = await Booking.find({ owner: req.user._id })
@@ -139,39 +172,44 @@ export const getOwnerBookings = async (req, res) => {
       .populate({ path: "user", select: "-password" })
       .sort({ createdAt: -1 });
 
-    res.json({ success: true, bookings });
+    return res.json({ success: true, bookings });
   } catch (error) {
     console.log(error.message);
-    res.json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// API: mudar status (owner aprova/cancela)
+// POST /api/bookings/change-status (PROTEGIDO OWNER)
 export const changeBookingStatus = async (req, res) => {
   try {
-    const { _id: ownerId } = req.user;
+    const ownerId = req.user._id;
+
+    if (req.user.role !== "owner") {
+      return res.status(403).json({ success: false, message: "Unauthorized" });
+    }
+
     const { bookingId, status } = req.body;
 
     const allowed = ["pending", "confirmed", "cancelled"];
-    if (!allowed.includes(status)) {
-      return res.json({ success: false, message: "Invalid status" });
+    const normalized = String(status || "").toLowerCase();
+
+    if (!bookingId || !allowed.includes(normalized)) {
+      return res.status(400).json({ success: false, message: "Invalid bookingId/status" });
     }
 
     const booking = await Booking.findById(bookingId);
-    if (!booking) {
-      return res.json({ success: false, message: "Booking not found" });
+    if (!booking) return res.status(404).json({ success: false, message: "Booking not found" });
+
+    if (booking.owner?.toString() !== ownerId.toString()) {
+      return res.status(403).json({ success: false, message: "Unauthorized" });
     }
 
-    if (booking.owner.toString() !== ownerId.toString()) {
-      return res.json({ success: false, message: "Unauthorized" });
-    }
-
-    booking.status = status;
+    booking.status = normalized;
     await booking.save();
 
-    res.json({ success: true, message: "Status Updated" });
+    return res.json({ success: true, message: "Status updated", booking });
   } catch (error) {
     console.log(error.message);
-    res.json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };

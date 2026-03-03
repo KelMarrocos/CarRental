@@ -10,15 +10,14 @@ const AddCar = () => {
   const navigate = useNavigate();
 
   const handleCreate = async (payload) => {
-  try {
-    const formData = new FormData();
+    try {
+      const formData = new FormData();
 
-    // O CarForm manda os campos no próprio payload
       const {
         coverFile,
         galleryFiles = [],
-        coverUrl,      // preview
-        galleryUrls,   // preview
+        coverUrl,
+        galleryUrls,
         ...carFields
       } = payload;
 
@@ -28,9 +27,8 @@ const AddCar = () => {
       }
 
       formData.append("carData", JSON.stringify(carFields));
-      formData.append("image", coverFile); // nome: image (capa)
+      formData.append("image", coverFile);
 
-      // nome: images (extras)
       galleryFiles.forEach((f) => f && formData.append("images", f));
 
       const { data } = await axios.post("/api/owner/add-car", formData, {
@@ -41,6 +39,9 @@ const AddCar = () => {
         toast.error(data?.message || "Failed to add car");
         return;
       }
+
+      // limpa draft profissional
+      localStorage.removeItem("car_rental:add_car_draft:v1");
 
       toast.success(data?.message || "Car Added");
       navigate("/owner/manage-cars");

@@ -6,6 +6,7 @@ import connectDB from "./configs/db.js";
 import userRouter from "./routes/userRoutes.js";
 import ownerRouter from "./routes/ownerRoutes.js";
 import bookingRouter from "./routes/bookingRoutes.js";
+
 // Initialize Express App
 const app = express();
 
@@ -13,8 +14,24 @@ const app = express();
 await connectDB();
 
 // Middleware
-app.use(cors());
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "https://SEU-FRONT.vercel.app", // <- troque pelo domínio real do front
+    ],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+  })
+);
+
+// preflight sem quebrar (NÃO use "*")
+app.options(/.*/, cors());
+
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Test Route
 app.get("/", (req, res) => res.send("Server is running"));

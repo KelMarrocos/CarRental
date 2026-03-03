@@ -80,7 +80,7 @@ export const addCar = async (req, res) => {
       ...car,
       owner: _id,
       image: mainUp.url,
-      images, // ✅ galeria
+      images,
 
       // opcionais para deletar depois
       imageFileId: mainUp.fileId,
@@ -98,7 +98,12 @@ export const addCar = async (req, res) => {
 export const getOwnerCars = async (req, res) => {
   try {
     const { _id } = req.user;
-    const cars = await Car.find({ owner: _id });
+
+    const cars = await Car.find({
+      owner: _id,
+      isDeleted: { $ne: true }, // pega false ou campo inexistente
+    }).sort({ createdAt: -1 });
+
     return res.json({ success: true, cars });
   } catch (error) {
     console.log(error.message);
@@ -252,26 +257,29 @@ export const toggleCarAvailability = async (req, res) => {
 export const deleteCar = async (req, res) => {
   try {
     const { _id } = req.user;
-    const carId = req.body.carId || req.params.id;
-
-    if (!carId) {
-      return res.json({ success: false, message: "carId is required" });
-    }
+    const carId = req.params.id;
 
     const car = await Car.findById(carId);
-    if (!car) {
-      return res.json({ success: false, message: "Car not found" });
-    }
+    if (!car) return res.json({ success: false, message: "Car not found" });
 
     if (car.owner?.toString() !== _id.toString()) {
       return res.json({ success: false, message: "Unauthorized" });
     }
 
-    car.owner = null;
-    car.isAvailable = false;
-    await car.save();
+    const fileIds = [
+      car.imageFileId,
+      ...(Array.isArray(car.imageFileIds) ? car.imageFileIds : []),
+    ].filter(Boolean);
 
-    return res.json({ success: true, message: "Car Removed" });
+    for (const fileId of fileIds) {
+      try { await imagekit.deleteFile(fileId); } catch (e) {
+        console.log("ImageKit delete failed:", fileId, e.message);
+      }
+    }
+
+    await Car.findByIdAndDelete(carId);
+
+    return res.json({ success: true, message: "Car deleted permanently" });
   } catch (error) {
     console.log(error.message);
     return res.json({ success: false, message: error.message });

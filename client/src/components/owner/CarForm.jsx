@@ -4,26 +4,24 @@ import { assets } from "../../constants/assets";
 /*
   CarForm (reutilizável)
   ---------------------
-  Usado por:
-  pages/owner/AddCar.jsx   (mode="create")
-  pages/owner/EditCar.jsx  (mode="edit")
-
-  Features:
-  ✔ Moeda automática via VITE_CURRENCY
-  ✔ Upload de capa + galeria (máx 8)
-  ✔ Limite por arquivo (máx 5MB)
-  ✔ Mensagem de erro “bonita”
-  ✔ Preview com remoção
-  ✔ Pronto pra integrar com API (onSubmit recebe payload)
+  - Auto-save draft (create) via localStorage (com debounce)
+  - Restore draft (create)
+  - Expiração do draft (default 24h)
+  - Botão "Clear draft"
+  - Toast opcional via window.dispatchEvent (sem acoplar com toast aqui)
 
   Observação:
-  - Como você está em mockData, a "galeria" não existe no modelo original.
-    Aqui já deixamos preparado com `gallery` (urls/arquivos).
+  - Arquivos (coverFile / galleryFiles) NÃO podem ser persistidos no localStorage
 */
 
 const MAX_GALLERY = 8;
 const MAX_FILE_SIZE_MB = 5;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
+//  Config do draft (profissional)
+const DRAFT_KEY = "car_rental:add_car_draft:v1";
+const DRAFT_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+const DRAFT_DEBOUNCE_MS = 500;
 
 const buildDefaultCar = () => ({
   brand: "",
@@ -36,36 +34,93 @@ const buildDefaultCar = () => ({
   seating_capacity: 4,
   location: "",
   description: "",
-  // coverUrl: string (imagem de capa, para preview)
   coverUrl: "",
-  // galleryUrls: string[] (imagens extras, para preview)
   galleryUrls: [],
 });
 
+// ============ draft helpers ============
+const now = () => Date.now();
+
+const readDraft = () => {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    if (!parsed?.data || !parsed?.savedAt) return null;
+
+    // expiração
+    if (now() - parsed.savedAt > DRAFT_TTL_MS) {
+      localStorage.removeItem(DRAFT_KEY);
+      return null;
+    }
+
+    return parsed.data;
+  } catch {
+    localStorage.removeItem(DRAFT_KEY);
+    return null;
+  }
+};
+
+const writeDraft = (data) => {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ savedAt: now(), data }));
+  } catch {
+    // se estourar quota, só ignora (não quebra o app)
+  }
+};
+
+const clearDraft = () => {
+  try {
+    localStorage.removeItem(DRAFT_KEY);
+  } catch {}
+};
+
+// ======================================
+
 const CarForm = ({
-  mode = "create",                 // "create" | "edit"
-  initialData = null,              // dados do carro (edit)
-  onSubmit,                        // (payload) => void | Promise<void>
-  onCancel,                        // () => void
+  mode = "create",
+  initialData = null,
+  onSubmit,
+  onCancel,
 }) => {
   const currency = import.meta.env.VITE_CURRENCY || "$";
 
-  // Estado do formulário
   const [car, setCar] = useState(buildDefaultCar());
 
-  // Arquivos selecionados (capa e galeria)
   const [coverFile, setCoverFile] = useState(null);
-  const [galleryFiles, setGalleryFiles] = useState([]); // File[]
+  const [galleryFiles, setGalleryFiles] = useState([]);
 
-  // Erros (mensagem única com UI bonita)
   const [error, setError] = useState("");
 
-  // Input refs (pra resetar o input quando precisar)
   const coverInputRef = useRef(null);
   const galleryInputRef = useRef(null);
 
-  // Preenche formulário no modo EDIT
+  const draftTimerRef = useRef(null);
+  const [draftRestored, setDraftRestored] = useState(false);
+
+  //  Restore draft (create) / Load initialData (edit)
   useEffect(() => {
+    setError("");
+
+    if (mode === "create") {
+      const draft = readDraft();
+      if (draft) {
+        setCar((prev) => ({ ...prev, ...draft }));
+        setDraftRestored(true);
+
+        // evento opcional pra você ouvir fora (se quiser toast)
+        window.dispatchEvent(new CustomEvent("carform:draft-restored"));
+      } else {
+        setDraftRestored(false);
+      }
+
+      setCoverFile(null);
+      setGalleryFiles([]);
+      return;
+    }
+
+    // mode edit
     if (!initialData) return;
 
     setCar((prev) => ({
@@ -80,19 +135,36 @@ const CarForm = ({
       seating_capacity: initialData.seating_capacity ?? 4,
       location: initialData.location ?? "",
       description: initialData.description ?? "",
-      // mockData atual tem `image` (capa). Vamos mapear.
       coverUrl: initialData.image ?? "",
-      // se um dia tiver `images`, pega aqui; por enquanto vazio
-      galleryUrls: initialData.images ?? [],
+      galleryUrls: Array.isArray(initialData.images) ? initialData.images : [],
     }));
 
-    // limpa arquivos selecionados (edit pode trocar se quiser)
     setCoverFile(null);
     setGalleryFiles([]);
-    setError("");
-  }, [initialData]);
+  }, [initialData, mode]);
 
-  // Helpers: gera preview URL de um file sem quebrar
+  // Auto-save draft (create) com debounce
+  useEffect(() => {
+    if (mode !== "create") return;
+
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+
+    draftTimerRef.current = setTimeout(() => {
+      // salva somente dados serializáveis
+      const dataToSave = {
+        ...car,
+        // protege pra não salvar urls de ObjectURL sem querer
+        // (aqui só temos strings)
+      };
+      writeDraft(dataToSave);
+    }, DRAFT_DEBOUNCE_MS);
+
+    return () => {
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    };
+  }, [car, mode]);
+
+  // Helpers
   const fileToPreviewUrl = (file) => {
     try {
       return URL.createObjectURL(file);
@@ -101,21 +173,25 @@ const CarForm = ({
     }
   };
 
-  // Preview da capa: arquivo (se selecionado) > coverUrl (edit) > placeholder
   const coverPreview = useMemo(() => {
     if (coverFile) return fileToPreviewUrl(coverFile);
     if (car.coverUrl) return car.coverUrl;
     return assets.upload_icon;
   }, [coverFile, car.coverUrl]);
 
-  // Preview da galeria: mistura urls + arquivos
   const galleryPreviews = useMemo(() => {
-    const fromUrls = (car.galleryUrls || []).map((url) => ({ type: "url", value: url }));
-    const fromFiles = galleryFiles.map((file) => ({ type: "file", value: fileToPreviewUrl(file), raw: file }));
+    const fromUrls = (car.galleryUrls || []).map((url) => ({
+      type: "url",
+      value: url,
+    }));
+    const fromFiles = galleryFiles.map((file) => ({
+      type: "file",
+      value: fileToPreviewUrl(file),
+      raw: file,
+    }));
     return [...fromUrls, ...fromFiles].slice(0, MAX_GALLERY);
   }, [car.galleryUrls, galleryFiles]);
 
-  // Valida 1 arquivo (tamanho e tipo)
   const validateFile = (file) => {
     if (!file) return "Arquivo inválido.";
     if (!file.type?.startsWith("image/")) return "Apenas imagens são permitidas.";
@@ -123,7 +199,6 @@ const CarForm = ({
     return "";
   };
 
-  // Capa
   const handleCoverChange = (e) => {
     setError("");
     const file = e.target.files?.[0];
@@ -139,13 +214,11 @@ const CarForm = ({
     setCoverFile(file);
   };
 
-  // Galeria (múltiplas)
   const handleGalleryChange = (e) => {
     setError("");
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
-    // calcula quantas já existem (urls + files)
     const existingCount = (car.galleryUrls?.length || 0) + galleryFiles.length;
     const remaining = MAX_GALLERY - existingCount;
 
@@ -161,8 +234,9 @@ const CarForm = ({
 
       const err = validateFile(f);
       if (err) {
-        // Mostra um erro amigável, mas ainda permite adicionar as válidas
-        setError(`⚠️ Algumas imagens foram ignoradas. Motivo: ${err} (máx ${MAX_FILE_SIZE_MB}MB)`);
+        setError(
+          `⚠️ Algumas imagens foram ignoradas. Motivo: ${err} (máx ${MAX_FILE_SIZE_MB}MB)`
+        );
         continue;
       }
 
@@ -176,15 +250,12 @@ const CarForm = ({
     if (galleryInputRef.current) galleryInputRef.current.value = "";
   };
 
-  // Remover imagem da galeria (suporta urls e files)
   const removeGalleryItem = (itemIndex) => {
     setError("");
 
-    // A lista mostrada = urls + files
     const urlCount = car.galleryUrls?.length || 0;
 
     if (itemIndex < urlCount) {
-      // remove da lista de urls
       setCar((prev) => ({
         ...prev,
         galleryUrls: prev.galleryUrls.filter((_, i) => i !== itemIndex),
@@ -192,35 +263,39 @@ const CarForm = ({
       return;
     }
 
-    // remove da lista de files
     const fileIndex = itemIndex - urlCount;
     setGalleryFiles((prev) => prev.filter((_, i) => i !== fileIndex));
   };
 
-  // Remover capa selecionada (volta pra url da capa no edit)
   const clearCoverFile = () => {
     setCoverFile(null);
     setError("");
     if (coverInputRef.current) coverInputRef.current.value = "";
   };
 
-  // Atualiza campos do form
   const updateField = (key, value) => {
     setCar((prev) => ({ ...prev, [key]: value }));
   };
 
-  // Submit: monta payload “pronto pra API”
+  const handleClearDraft = () => {
+    clearDraft();
+    setCar(buildDefaultCar());
+    setCoverFile(null);
+    setGalleryFiles([]);
+    setError("");
+    setDraftRestored(false);
+    window.dispatchEvent(new CustomEvent("carform:draft-cleared"));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
 
-    // validações mínimas
     if (!car.brand.trim() || !car.model.trim()) {
-      setError("⚠️ Preencha pelo menos Brand e Model.");
+      setError("⚠️ Preencha todos os campos abaixo.");
       return;
     }
 
-    // capa: no create recomendamos ter uma capa
     if (mode === "create" && !coverFile) {
       setError("⚠️ Adicione uma imagem de capa para o carro.");
       return;
@@ -228,14 +303,11 @@ const CarForm = ({
 
     const payload = {
       ...car,
-      // padroniza campos numéricos
       year: Number(car.year),
       pricePerDay: Number(car.pricePerDay),
       seating_capacity: Number(car.seating_capacity),
-
-      // arquivos (para futura API)
-      coverFile,             // File | null
-      galleryFiles,          // File[]
+      coverFile,
+      galleryFiles,
     };
 
     await onSubmit?.(payload);
@@ -243,7 +315,25 @@ const CarForm = ({
 
   return (
     <form onSubmit={handleSubmit} className="mt-6 max-w-3xl">
-      {/* Error banner (bonito) */}
+      {/* Draft banner (só no create) */}
+      {mode === "create" && draftRestored && (
+        <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          <div className="flex items-center justify-between gap-3">
+            <p>
+              ✅ Rascunho restaurado. Se quiser começar do zero, limpe o rascunho.
+            </p>
+            <button
+              type="button"
+              onClick={handleClearDraft}
+              className="px-3 py-1.5 rounded-lg border border-blue-200 bg-white hover:bg-blue-100 transition text-xs font-medium"
+            >
+              Clear draft
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Error banner */}
       {error && (
         <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <div className="flex items-start gap-2">
@@ -341,14 +431,13 @@ const CarForm = ({
               />
             </div>
 
-            {/* previews */}
             {galleryPreviews.length > 0 && (
               <div className="mt-4 grid grid-cols-4 gap-3">
                 {galleryPreviews.map((item, idx) => (
                   <div key={`${item.type}-${idx}`} className="relative">
                     <div className="w-full aspect-square rounded-xl overflow-hidden bg-gray-100 border border-bordercolor">
                       <img
-                        src={item.type === "url" ? item.value : item.value}
+                        src={item.value}
                         alt="gallery"
                         className="w-full h-full object-cover"
                       />
@@ -375,6 +464,24 @@ const CarForm = ({
               </div>
             )}
           </div>
+
+          {/* Clear draft quick action */}
+          {mode === "create" && (
+            <div className="bg-white border border-bordercolor rounded-xl p-4 shadow-sm">
+              <p className="font-medium text-gray-800">Draft</p>
+              <p className="text-xs text-gray-500 mt-1">
+                Your draft is saved automatically.
+              </p>
+
+              <button
+                type="button"
+                onClick={handleClearDraft}
+                className="mt-3 w-full px-4 py-2 rounded-lg border border-bordercolor hover:bg-gray-50 transition text-sm"
+              >
+                Clear draft
+              </button>
+            </div>
+          )}
         </div>
 
         {/* RIGHT: campos */}
@@ -385,7 +492,6 @@ const CarForm = ({
               Keep it consistent for better search results.
             </p>
 
-            {/* Campos */}
             <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600">
               <div className="flex flex-col gap-2">
                 <label className="font-medium">Brand</label>
@@ -497,7 +603,6 @@ const CarForm = ({
               </div>
             </div>
 
-            {/* Actions */}
             <div className="mt-6 flex items-center gap-3">
               <button
                 type="submit"
@@ -521,7 +626,6 @@ const CarForm = ({
             </div>
           </div>
 
-          {/* Hint box (padrão produto) */}
           <div className="mt-4 text-xs text-gray-500">
             Tip: For best results, add interior + dashboard photos in the gallery.
           </div>

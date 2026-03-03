@@ -7,7 +7,9 @@ import { toast } from "react-hot-toast";
 
 const ManageCars = () => {
   const navigate = useNavigate();
-  const { axios, currency } = useAppContext();
+
+  // pega token também (pra evitar request sem auth no reload)
+  const { axios, currency, token, isOwner } = useAppContext();
 
   const [cars, setCars] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,6 +33,7 @@ const ManageCars = () => {
   const fetchOwnerCars = async () => {
     try {
       setLoading(true);
+
       const { data } = await axios.get("/api/owner/cars");
 
       if (!data?.success) {
@@ -51,55 +54,74 @@ const ManageCars = () => {
   };
 
   const handleToggleAvailability = async (carId) => {
-  // otimista (UI muda na hora)
-  setCars((prev) =>
-    prev.map((c) => (c._id === carId ? { ...c, isAvailable: !c.isAvailable } : c))
-  );
-
-  try {
-    const { data } = await axios.patch(`/api/owner/car/${carId}/toggle`);
-
-    if (!data?.success) throw new Error(data?.message || "Toggle failed");
-
-    toast.success(data?.message || "Availability updated");
-  } catch (error) {
-    // rollback
+    // otimista (UI muda na hora)
     setCars((prev) =>
-      prev.map((c) => (c._id === carId ? { ...c, isAvailable: !c.isAvailable } : c))
+      prev.map((c) =>
+        c._id === carId ? { ...c, isAvailable: !c.isAvailable } : c
+      )
     );
-    toast.error(error?.response?.data?.message || error?.message || "Failed to toggle");
-  }
-};
-
-  const handleDelete = async (carId) => {
-    // (simples) confirma com o browser — depois você pode trocar por modal bonito
-    const ok = window.confirm("Remove this car?");
-    if (!ok) return;
-
-    // otimista
-    const before = cars;
-    setCars((prev) => prev.filter((c) => c._id !== carId));
 
     try {
-      const { data } = await axios.delete(`/api/owner/car/${carId}`);
+      const { data } = await axios.patch(`/api/owner/car/${carId}/toggle`);
 
-      if (!data?.success) {
-        throw new Error(data?.message || "Delete failed");
-      }
+      if (!data?.success) throw new Error(data?.message || "Toggle failed");
 
-      toast.success(data?.message || "Car removed");
+      toast.success(data?.message || "Availability updated");
     } catch (error) {
-      setCars(before); // reverte
+      // rollback
+      setCars((prev) =>
+        prev.map((c) =>
+          c._id === carId ? { ...c, isAvailable: !c.isAvailable } : c
+        )
+      );
       toast.error(
-        error?.response?.data?.message || error?.message || "Failed to delete"
+        error?.response?.data?.message || error?.message || "Failed to toggle"
       );
     }
   };
 
+  const handleDelete = async (carId) => {
+    try {
+      const { data } = await axios.delete(`/api/owner/car/${carId}`);
+
+      if (!data?.success) {
+        toast.error(data?.message || "Failed to delete car");
+        return;
+      }
+
+      toast.success(data?.message || "Car Removed");
+      setCars((prev) => prev.filter((c) => c._id !== carId));
+    } catch (error) {
+      toast.error(
+        error?.response?.data?.message || error?.message || "Delete failed"
+      );
+    }
+  };
+
+  /**
+   * IMPLEMENTAÇÃO PRINCIPAL
+   * - Não chama /owner/cars sem token
+   * - Evita 401 no reload
+   */
   useEffect(() => {
+    // ainda carregando sessão/token
+    if (!token) {
+      setLoading(false);
+      setCars([]);
+      return;
+    }
+
+    // opcional: se quiser garantir que só owner acessa
+    if (isOwner === false) {
+      // não spamma toast; você pode redirecionar se quiser
+      // navigate("/");
+      // toast.error("Unauthorized");
+      return;
+    }
+
     fetchOwnerCars();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [token, isOwner]);
 
   /* =========================
      UI pieces
@@ -161,6 +183,18 @@ const ManageCars = () => {
       </button>
     </div>
   );
+
+  // se não tem token, mostra um estado amigável (opcional)
+  if (!token) {
+    return (
+      <div className="px-4 pt-10 md:px-10 w-full">
+        <Title
+          title="Manage Cars"
+          subTitle="Please login to manage your cars."
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="px-4 pt-10 md:px-10 w-full">
@@ -273,7 +307,9 @@ const ManageCars = () => {
                         >
                           <span
                             className={`h-2 w-2 rounded-full ${
-                              status === "Available" ? "bg-green-600" : "bg-gray-500"
+                              status === "Available"
+                                ? "bg-green-600"
+                                : "bg-gray-500"
                             }`}
                           />
                           {status}

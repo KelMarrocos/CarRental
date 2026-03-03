@@ -24,6 +24,9 @@ const carSchema = new mongoose.Schema(
 
     isAvailable: { type: Boolean, default: true },
 
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
+
     images: { type: [String], default: [] },
     imageFileId: { type: String, default: "" },
     imageFileIds: { type: [String], default: [] },

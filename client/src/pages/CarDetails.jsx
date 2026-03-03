@@ -9,7 +9,7 @@ import { toast } from "react-hot-toast";
 const CarDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { axios } = useAppContext();
+  const { axios, token, setShowLogin } = useAppContext();
 
   const [car, setCar] = useState(null);
   const [image, setImage] = useState(null);
@@ -18,15 +18,25 @@ const CarDetails = () => {
   const [returnDate, setReturnDate] = useState("");
 
   const [loading, setLoading] = useState(true);
+  const [bookingLoading, setBookingLoading] = useState(false);
 
   const currency = import.meta.env.VITE_CURRENCY_SYMBOL || "$";
+
+  // yyyy-mm-dd de hoje (pra min do input)
+  const todayStr = useMemo(() => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }, []);
 
   useEffect(() => {
     const fetchCar = async () => {
       try {
         setLoading(true);
 
-        // API pública
+        // Mantendo seu endpoint atual (lista) pra não depender de mudar backend
         const { data } = await axios.get("/api/user/cars");
 
         if (!data?.success) {
@@ -36,7 +46,6 @@ const CarDetails = () => {
         }
 
         const found = (data.cars || []).find((c) => c._id === id);
-
         if (!found) {
           setCar(null);
           return;
@@ -44,9 +53,8 @@ const CarDetails = () => {
 
         setCar(found);
 
-        // Se tiver images[], usa a primeira como principal; senão usa car.image.
-        const extra = Array.isArray(found.images) ? found.images.filter(Boolean) : [];
-        setImage(extra[0] || found.image || null);
+        const extras = Array.isArray(found.images) ? found.images.filter(Boolean) : [];
+        setImage(extras[0] || found.image || null);
       } catch (error) {
         toast.error(
           error?.response?.data?.message || error?.message || "Failed to load car"
@@ -67,33 +75,110 @@ const CarDetails = () => {
     return Array.from(new Set([car.image, ...extras].filter(Boolean)));
   }, [car]);
 
-  // Garante que a imagem principal esteja sempre setada quando a galeria mudar
+  // Mantém a imagem principal sempre válida
   useEffect(() => {
     if (!car) return;
+
     if (!image && gallery.length) {
       setImage(gallery[0]);
       return;
     }
-    // se a imagem atual não existe mais (ex: depois de editar), volta pra primeira
+
     if (image && gallery.length && !gallery.includes(image)) {
       setImage(gallery[0]);
     }
   }, [car, gallery, image]);
 
-  const totalDays = useMemo(() => {
-    if (!pickup || !returnDate) return 0;
+  // Datas válidas?
+  const dateValidation = useMemo(() => {
+    if (!pickup || !returnDate) {
+      return { ok: false, reason: "Select pickup and return dates." };
+    }
 
     const start = new Date(pickup);
     const end = new Date(returnDate);
 
-    const diff = (end - start) / (1000 * 60 * 60 * 24);
-    return diff > 0 ? diff : 0;
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return { ok: false, reason: "Invalid dates." };
+    }
+
+    if (end <= start) {
+      return { ok: false, reason: "Return date must be after pickup date." };
+    }
+
+    return { ok: true, reason: "" };
   }, [pickup, returnDate]);
+
+  const totalDays = useMemo(() => {
+    if (!dateValidation.ok) return 0;
+
+    const start = new Date(pickup);
+    const end = new Date(returnDate);
+    const diff = (end - start) / (1000 * 60 * 60 * 24);
+
+    return diff > 0 ? Math.ceil(diff) : 0;
+  }, [pickup, returnDate, dateValidation.ok]);
 
   const totalPrice = useMemo(() => {
     if (!car) return 0;
-    return totalDays * car.pricePerDay;
+    return totalDays * Number(car.pricePerDay || 0);
   }, [totalDays, car]);
+
+  const canReserve = !!car?._id && dateValidation.ok && !bookingLoading;
+
+  const handleReserve = async () => {
+    if (!car?._id) return toast.error("Car not found.");
+
+    // Auth
+    if (!token) {
+      toast("Please login to book.");
+      if (typeof setShowLogin === "function") setShowLogin(true);
+      return;
+    }
+
+    // Datas
+    if (!dateValidation.ok) {
+      toast.error(dateValidation.reason);
+      return;
+    }
+
+    try {
+      setBookingLoading(true);
+
+      const { data } = await axios.post("/api/bookings/create", {
+        carId: car._id,
+        pickupDate: pickup,
+        returnDate,
+      });
+
+      if (!data?.success) {
+        toast.error(data?.message || "Booking failed");
+        return;
+      }
+
+      toast.success(data?.message || "Booking created!");
+      navigate("/my-bookings");
+    } catch (error) {
+      const status = error?.response?.status;
+      const msg =
+        error?.response?.data?.message || error?.message || "Booking failed";
+
+      if (status === 409) {
+        toast.error("This car is already booked for these dates.");
+        return;
+      }
+
+      if (status === 401 || status === 403) {
+        toast.error("Session expired. Please login again.");
+        if (typeof setShowLogin === "function") setShowLogin(true);
+        return;
+      }
+
+      toast.error(msg);
+    } finally {
+      setBookingLoading(false);
+    }
+  };
 
   if (loading) return <CarDetailsSkeleton />;
 
@@ -110,7 +195,7 @@ const CarDetails = () => {
             onClick={() => navigate("/cars")}
             className="mt-6 inline-flex items-center gap-2 px-5 py-2 border rounded-lg hover:shadow-md transition"
           >
-            <img src={assets.arrow_icon} className="rotate-180 opacity-60" />
+            <img src={assets.arrow_icon} className="rotate-180 opacity-60" alt="" />
             Back to cars
           </RippleButton>
         </div>
@@ -122,30 +207,22 @@ const CarDetails = () => {
     <div className="px-6 md:px-16 lg:px-24 xl:px-32 mt-16">
       <RippleButton
         onClick={() => navigate("/cars")}
-        className="
-          mb-10 flex items-center gap-2
-          px-5 py-2 border rounded-lg
-          hover:shadow-md transition
-        "
+        className="mb-10 flex items-center gap-2 px-5 py-2 border rounded-lg hover:shadow-md transition"
       >
-        <img src={assets.arrow_icon} className="rotate-180 opacity-60" />
+        <img src={assets.arrow_icon} className="rotate-180 opacity-60" alt="" />
         Back to cars
       </RippleButton>
 
       <div className="grid lg:grid-cols-3 gap-12">
+        {/* LEFT */}
         <div className="lg:col-span-2 space-y-8">
           <div className="space-y-4">
             <img
               src={image || car.image}
               alt={`${car.brand} ${car.model}`}
-              className="
-                w-full h-[480px]
-                object-cover rounded-2xl
-                shadow-sm transition duration-500
-              "
+              className="w-full h-[480px] object-cover rounded-2xl shadow-sm transition duration-500"
             />
 
-            {/* Thumbnails */}
             <div className="grid grid-cols-4 gap-4">
               {(gallery.length ? gallery : [car.image]).map((img, i) => (
                 <img
@@ -154,8 +231,7 @@ const CarDetails = () => {
                   alt={`thumb-${i}`}
                   onClick={() => setImage(img)}
                   className={`
-                    h-24 w-full object-cover
-                    rounded-xl cursor-pointer
+                    h-24 w-full object-cover rounded-xl cursor-pointer
                     transition hover:scale-105
                     ${image === img ? "ring-2 ring-primary" : ""}
                   `}
@@ -196,6 +272,7 @@ const CarDetails = () => {
           </div>
         </div>
 
+        {/* RIGHT */}
         <div className="sticky top-24 h-max bg-white border rounded-2xl p-7 shadow-xl space-y-6">
           <div className="flex justify-between items-end">
             <p className="text-3xl font-bold">
@@ -209,20 +286,36 @@ const CarDetails = () => {
             <input
               type="date"
               value={pickup}
-              onChange={(e) => setPickup(e.target.value)}
+              min={todayStr}
+              onChange={(e) => {
+                const v = e.target.value;
+                setPickup(v);
+
+                // se return estiver antes/equal pickup, limpa
+                if (returnDate && v && new Date(returnDate) <= new Date(v)) {
+                  setReturnDate("");
+                }
+              }}
               className="w-full border rounded-lg px-3 py-2"
             />
+
             <input
               type="date"
               value={returnDate}
+              min={pickup || todayStr}
               onChange={(e) => setReturnDate(e.target.value)}
               className="w-full border rounded-lg px-3 py-2"
             />
           </div>
 
+          {/* feedback de validação */}
+          {!dateValidation.ok && (pickup || returnDate) && (
+            <p className="text-xs text-red-500">{dateValidation.reason}</p>
+          )}
+
           {totalDays > 0 && (
             <div className="bg-gray-50 p-4 rounded-xl">
-              <p>{totalDays} days</p>
+              <p>{totalDays} day{totalDays > 1 ? "s" : ""}</p>
               <p className="font-semibold text-lg">
                 Total: {currency}
                 {totalPrice}
@@ -231,16 +324,15 @@ const CarDetails = () => {
           )}
 
           <RippleButton
-            className="
+            className={`
               w-full py-3 rounded-xl
-              bg-primary text-white font-medium
-              hover:scale-[1.02]
-              active:scale-[.98]
-              transition
-            "
-            onClick={() => toast("Reserve flow: implementar depois :)")}
+              bg-primary text-white font-medium transition
+              ${canReserve ? "hover:scale-[1.02] active:scale-[.98]" : "opacity-60 cursor-not-allowed"}
+            `}
+            onClick={handleReserve}
+            disabled={!canReserve}
           >
-            Reserve Now
+            {bookingLoading ? "Reserving..." : "Reserve Now"}
           </RippleButton>
 
           <p className="text-xs text-center text-gray-400">

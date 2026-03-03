@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { assets, menuLinks } from "../constants";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAppContext } from "../context/AppContext";
 import { toast } from "react-hot-toast";
+
+const norm = (v) => String(v ?? "").trim();
 
 const Navbar = ({ setShowLogin: setShowLoginProp }) => {
   const {
@@ -13,6 +15,7 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
     axios,
     setIsOwner,
     token,
+    cars: carsFromContext = [], // vem do AppContext (já carregado do /api/user/cars)
   } = useAppContext();
 
   const setShowLogin =
@@ -27,17 +30,62 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
 
   const [open, setOpen] = useState(false);
 
-  // estado do search
+  // Search + Filters (controlados e sincronizados com URL)
   const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("");
+  const [transmission, setTransmission] = useState("");
+  const [fuel, setFuel] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+
+  // Dropdown (popover)
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filterBoxRef = useRef(null);
 
   const isHome = location.pathname === "/";
 
-  // se já estiver em /cars e mudar o ?q=..., sincroniza o input
+  // Opções dinâmicas vindas dos cars reais
+  const options = useMemo(() => {
+    const uniq = (arr) =>
+      Array.from(new Set(arr.map((x) => norm(x)).filter(Boolean)));
+
+    return {
+      categories: uniq(carsFromContext.map((c) => c.category)),
+      transmissions: uniq(carsFromContext.map((c) => c.transmission)),
+      fuels: uniq(carsFromContext.map((c) => c.fuel_type)),
+    };
+  }, [carsFromContext]);
+
+  // Sync com URL (sempre que mudar a URL, atualiza estados)
   useEffect(() => {
     const params = new URLSearchParams(location.search);
+
     const q = params.get("q") || "";
-    if (location.pathname === "/cars") setQuery(q);
+    const c = params.get("category") || "";
+    const t = params.get("transmission") || "";
+    const f = params.get("fuel") || "";
+    const m = params.get("maxPrice") || "";
+
+    // Mantém os 2 sincronizados sempre, mas só faz sentido mostrar preenchido no /cars
+    if (location.pathname === "/cars") {
+      setQuery(q);
+      setCategory(c);
+      setTransmission(t);
+      setFuel(f);
+      setMaxPrice(m);
+    }
   }, [location.pathname, location.search]);
+
+  // fecha dropdown ao clicar fora
+  useEffect(() => {
+    const onClickOutside = (e) => {
+      if (!filtersOpen) return;
+      if (filterBoxRef.current && !filterBoxRef.current.contains(e.target)) {
+        setFiltersOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [filtersOpen]);
 
   const changeRole = async () => {
     try {
@@ -56,10 +104,7 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
   const handleListCarsClick = () => {
     setOpen(false);
 
-    if (isOwner) {
-      navigate("/owner");
-      return;
-    }
+    if (isOwner) return navigate("/owner");
 
     if (!token) {
       if (!setShowLogin) return toast.error("Login modal handler is missing.");
@@ -79,12 +124,45 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
     setShowLogin(true);
   };
 
-  // quando pesquisar (Enter ou click na lupa)
+  // Helper: navegar para /cars com params
+  const goToCarsWithParams = (paramsObj, replace = false) => {
+    const params = new URLSearchParams();
+
+    Object.entries(paramsObj).forEach(([key, value]) => {
+      const v = norm(value);
+      if (v) params.set(key, v);
+    });
+
+    const qs = params.toString();
+    navigate(qs ? `/cars?${qs}` : "/cars", { replace });
+  };
+
+  // pesquisar (Enter ou lupa)
   const submitSearch = () => {
-    const q = query.trim();
-    // manda pra página /cars com querystring
-    navigate(q ? `/cars?q=${encodeURIComponent(q)}` : "/cars");
     setOpen(false);
+
+    goToCarsWithParams({
+      q: query,
+      category,
+      transmission,
+      fuel,
+      maxPrice,
+    });
+  };
+
+  const applyFilters = () => {
+    setFiltersOpen(false);
+    submitSearch();
+  };
+
+  const clearFilters = () => {
+    setCategory("");
+    setTransmission("");
+    setFuel("");
+    setMaxPrice("");
+    // mantém query
+    goToCarsWithParams({ q: query }, true);
+    setFiltersOpen(false);
   };
 
   return (
@@ -118,11 +196,10 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
           </Link>
         ))}
 
-        {/* Search (desktop) */}
+        {/* Search + Filter (desktop) */}
         <div
-          className={`hidden lg:flex items-center text-sm gap-2 border 
-          border-bordercolor px-3 rounded-full max-w-56
-          ${isHome ? "bg-light" : "bg-white"}`}
+          className={`hidden lg:flex items-center text-sm gap-2 border border-bordercolor
+          px-3 rounded-full w-[340px] h-10 ${isHome ? "bg-light" : "bg-white"}`}
         >
           <input
             type="text"
@@ -134,12 +211,123 @@ const Navbar = ({ setShowLogin: setShowLoginProp }) => {
                 submitSearch();
               }
             }}
-            className="py-1.5 w-full bg-transparent outline-none placeholder-gray-500"
+            className="w-full bg-transparent outline-none placeholder-gray-500"
             placeholder="Search cars..."
           />
 
-          <button type="button" onClick={submitSearch} className="opacity-80 hover:opacity-100">
-            <img src={assets.search_icon} alt="search" />
+          {/* Popover ancorado no ícone */}
+          <div className="relative" ref={filterBoxRef}>
+            <button
+              type="button"
+              onClick={() => setFiltersOpen((p) => !p)}
+              className="h-9 w-9 rounded-full grid place-items-center hover:bg-gray-50 transition"
+              title="Filters"
+            >
+              <img src={assets.filter_icon} alt="filters" className="opacity-90" />
+            </button>
+
+            {filtersOpen && (
+              <div
+                className="absolute right-0 top-full mt-2 w-[320px]
+                bg-white border border-bordercolor rounded-2xl shadow-lg p-4 z-50"
+              >
+                <p className="text-sm font-semibold text-gray-800 mb-3">Filters</p>
+
+                <div className="space-y-3">
+                  {/* Category */}
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Category</label>
+                    <select
+                      value={category}
+                      onChange={(e) => setCategory(e.target.value)}
+                      className="w-full border border-bordercolor rounded-lg px-3 py-2 text-sm outline-none bg-white"
+                    >
+                      <option value="">All</option>
+                      {options.categories.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Transmission */}
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Transmission</label>
+                    <select
+                      value={transmission}
+                      onChange={(e) => setTransmission(e.target.value)}
+                      className="w-full border border-bordercolor rounded-lg px-3 py-2 text-sm outline-none bg-white"
+                    >
+                      <option value="">All</option>
+                      {options.transmissions.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Fuel */}
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Fuel</label>
+                    <select
+                      value={fuel}
+                      onChange={(e) => setFuel(e.target.value)}
+                      className="w-full border border-bordercolor rounded-lg px-3 py-2 text-sm outline-none bg-white"
+                    >
+                      <option value="">All</option>
+                      {options.fuels.map((f) => (
+                        <option key={f} value={f}>
+                          {f}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Max price */}
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Max price / day</label>
+                    <input
+                      type="number"
+                      value={maxPrice}
+                      onChange={(e) => setMaxPrice(e.target.value)}
+                      placeholder="e.g. 300"
+                      className="w-full border border-bordercolor rounded-lg px-3 py-2 text-sm outline-none"
+                      min={0}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="px-3 py-2 rounded-lg border border-bordercolor text-sm hover:bg-gray-50 transition"
+                  >
+                    Clear
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={applyFilters}
+                    className="px-4 py-2 rounded-lg bg-primary text-white text-sm hover:bg-primary-dull transition"
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* lupa */}
+          <button
+            type="button"
+            onClick={submitSearch}
+            className="h-9 w-9 rounded-full grid place-items-center hover:bg-gray-50 transition"
+            title="Search"
+          >
+            <img src={assets.search_icon} alt="search" className="opacity-90" />
           </button>
         </div>
 

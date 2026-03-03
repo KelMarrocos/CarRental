@@ -4,13 +4,22 @@ const { ObjectId } = mongoose.Schema.Types;
 
 const bookingSchema = new mongoose.Schema(
   {
-    car: {type: ObjectId, ref: "Car", required: true},
-    user: {type: ObjectId, ref: "User", required: true},
-    owner: {type: ObjectId, ref: "User", required: true},
-    pickupDate: {type: Date, required: true},
-    returnDate: {type: Date, required: true},
-    status: {type: String, enum:["pending", "confirmed", "cancelled"], default: "pending"},
-    price: {type: Number, required: true},
+    user: { type: ObjectId, ref: "User", required: true },
+    owner: { type: ObjectId, ref: "User", required: true },
+    car: { type: ObjectId, ref: "Car", required: true },
+
+    pickupDate: { type: Date, required: true },
+    returnDate: { type: Date, required: true },
+
+    totalDays: { type: Number, required: true },
+    pricePerDay: { type: Number, required: true },
+    price: { type: Number, required: true }, // total final
+
+    status: {
+      type: String,
+      enum: ["pending", "confirmed", "cancelled"],
+      default: "pending",
+    },
   },
   { timestamps: true }
 );
